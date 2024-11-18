@@ -1,0 +1,31 @@
+@startuml
+skinparam backgroundColor white
+skinparam component {
+    BackgroundColor LightSteelBlue
+    BorderColor DarkSlateGray
+    ArrowColor DarkSlateGray
+}
+
+[Raw Text Review] as input #LightGreen
+[Predicted Rating] as output #LightPink
+
+component "Text Preprocessing" {
+    [Lowercase\nRemove Special Chars\nSpell Correction\nTokenization\nRemove Stopwords\nJoin Tokens] as preproc
+}
+
+component "Feature Engineering" {
+    [TF-IDF Vectorizer] as tfidf
+    [PCA] as pca
+}
+
+component "Model" {
+    [Logistic Regression] as lr
+}
+
+input -down-> preproc
+preproc -down-> tfidf : "Clean Text"
+tfidf -down-> pca : "Sparse Matrix"
+pca -down-> lr : "Principal Components"
+lr -down-> output
+
+@enduml
