@@ -1,5 +1,8 @@
 # exclude datasets
 data/*
+!data/*_processed.csv
+!data/*_dataset_100.csv
+!data/dataset.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
