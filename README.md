@@ -23,6 +23,17 @@ Criterios de aprobación
 - Como última fecha de entrega del trabajo, estará limitado a 7 días posteriores a la última clase.
 - La entrega es por el aula virtual, ya sea el envío del contenido o el link a repositorio (de GitHub o GitLab) con el trabajo.
 
+### Estrategia de trabajo:
+- GridSearch (hyper param optimization)
+- PCA
+- Regularizacion
+- Balanceo de clases (SMOTE, otros)
+- Cross Validation
+- Metrics (f1-score, accuracy, recall, precision)
+- Modelos: logistic regression, SVM, xgboost
+- Agrupar en 3 clases
+- Comparativo con modelos basado en LLM/NN SOTA
+
 ### Datasets:
 - https://github.com/charlesmalafosse/open-dataset-for-sentiment-analysis
 - https://huggingface.co/VerificadoProfesional/SaBERT-Spanish-Sentiment-Analysis
