@@ -18,7 +18,7 @@ free_memory()
 
 load_dotenv()
 HF_TOKEN = os.getenv('HF_TOKEN')
-model_id = "meta-llama/Llama-3.2-1B-Instruct"
+model_id = "facebook/opt-1.3b"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
