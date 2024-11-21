@@ -43,7 +43,7 @@ Como se toman estos datos, no como augmentation, sino como reseñas nuevas, las 
 - cleaned_dataset_100.csv: Dataset pre-procesado usando tripadvisor_hotel_reviews-balanced.csv con solo 100 muestras
 - dataset.csv: Dataset original Kaggle
 
-- Original: https://www.kaggle.com/datasets/andrewmvd/trip-advisor-hotel-reviews
+*Original*: https://www.kaggle.com/datasets/andrewmvd/trip-advisor-hotel-reviews
 
 
 Tal vez se puedan mergear spanish targeted con political sentiment analysis dando un dataset con al menos 10k muestras.
