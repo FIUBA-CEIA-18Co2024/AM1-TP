@@ -3,7 +3,7 @@ data/*
 !data/*_processed.csv
 !data/*_dataset_100.csv
 !data/dataset.csv
-!data/tripadvisor_hotel_reviews-balanced.csv
+!data/tripadvisor_hotel_reviews_balanced.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
