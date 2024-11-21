@@ -35,18 +35,15 @@ Criterios de aprobación
 - Comparativo con modelos basado en LLM/NN SOTA
 
 ### Datasets:
-- https://github.com/charlesmalafosse/open-dataset-for-sentiment-analysis
-- https://huggingface.co/VerificadoProfesional/SaBERT-Spanish-Sentiment-Analysis
-  - http://tass.sepln.org/tass_data/download.php?auth=Ot4aysCsd49ewvWesr6
-- https://github.com/Observatorio-de-Redes/politicosentwitter?tab=readme-ov-file
-- https://huggingface.co/datasets/pysentimiento/spanish-targeted-sentiment-headlines (!!)
-- https://github.com/taljuk01/political_sentiment_analysis/tree/master (!!)
-  - https://drive.google.com/file/d/1qHfM_APQ4BTpzUdQc7X_51RGU5Mpi5De/view
-- https://huggingface.co/datasets/NickyNicky/Finance_sentiment_and_topic_classification_Translation_English_to_Spanish_v1
-- https://www.kaggle.com/datasets/andrewmvd/trip-advisor-hotel-reviews (!!)
-- http://www.t4sa.it
-  - user: t4sa
-    pass: U4Cm_dUa
-- https://www.kaggle.com/datasets/kazanova/sentiment140 (!!)
+Se utiliza dataset de reviews de estadía en hoteles de la empresa TripAdvisor. Se generan filas sinteticas extras con Llama3-1B-Instruct para balancear las clases.
+Como se toman estos datos, no como augmentation, sino como reseñas nuevas, las muestras se utilizaran tanto para splits de train como de test.
+
+- tripadvisor_hotel_reviews-balanced.csv: Dataset original Kaggle + datos sinteticos generados con LLM
+- cleaned_dataset_processed_balanced.csv: Dataset pre-procesado usando tripadvisor_hotel_reviews-balanced.csv
+- cleaned_dataset_100.csv: Dataset pre-procesado usando tripadvisor_hotel_reviews-balanced.csv con solo 100 muestras
+- dataset.csv: Dataset original Kaggle
+
+- Original: https://www.kaggle.com/datasets/andrewmvd/trip-advisor-hotel-reviews
+
 
 Tal vez se puedan mergear spanish targeted con political sentiment analysis dando un dataset con al menos 10k muestras.
