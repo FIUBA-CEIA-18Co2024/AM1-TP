@@ -1,0 +1,69 @@
+@startuml VM Cluster Placement
+
+skinparam rectangle {
+    BackgroundColor<<existing>> LightGreen
+    BackgroundColor<<new>> LightBlue
+}
+
+' Clusters
+package "Clusters" {
+    rectangle "Cluster 1 (c1)" as c1 {
+        component "Capacity" as c1_cap {
+            rectangle "CPU: 100"
+            rectangle "Memory: 100"
+            rectangle "Disk: 100"
+        }
+        rectangle "Current Usage" as c1_usage {
+            rectangle "CPU: 40%"
+            rectangle "Memory: 30%"
+            rectangle "Disk: 50%"
+        }
+        rectangle "VM1" <<existing>> {
+            rectangle "CPU: 20"
+            rectangle "Memory: 30"
+            rectangle "Disk: 10"
+        }
+    }
+
+    rectangle "Cluster 2 (c2)" as c2 {
+        component "Capacity" as c2_cap {
+            rectangle "CPU: 100"
+            rectangle "Memory: 100"
+            rectangle "Disk: 100"
+        }
+        rectangle "Current Usage" as c2_usage {
+            rectangle "CPU: 30%"
+            rectangle "Memory: 40%"
+            rectangle "Disk: 20%"
+        }
+        rectangle "VM2" <<existing>> {
+            rectangle "CPU: 30"
+            rectangle "Memory: 20"
+            rectangle "Disk: 20"
+        }
+    }
+}
+
+' New VMs to place
+package "VMs to Place" {
+    rectangle "VM3" <<new>> {
+        rectangle "CPU: 20"
+        rectangle "Memory: 20"
+        rectangle "Disk: 20"
+    }
+    rectangle "VM4" <<new>> {
+        rectangle "CPU: 15"
+        rectangle "Memory: 25"
+        rectangle "Disk: 15"
+    }
+}
+
+note right of "VMs to Place"
+  Optimization Goals:
+  * Place each new VM in a cluster
+  * Respect cluster resource limits
+  * Maximize minimum utilization
+  * Balance resource usage
+end note
+
+@enduml
