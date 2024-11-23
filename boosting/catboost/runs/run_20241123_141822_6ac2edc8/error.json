@@ -1,0 +1,4 @@
+{
+    "error": "catboost/private/libs/options/bootstrap_options.cpp:44: Error: bagging temperature available for bayesian bootstrap only",
+    "timestamp": "2024-11-23T14:19:52.054873"
+}

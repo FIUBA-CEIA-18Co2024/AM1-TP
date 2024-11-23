@@ -1,0 +1,25 @@
+
+        Run Summary
+        ==========
+        Run ID: run_20241123_003708_c9f73d6d
+        Timestamp: 2024-11-23T00:38:27.603921
+        Best Accuracy: 0.5650
+        Train Accuracy: 0.8350
+        Test Accuracy: 0.5650
+        Number of Trials: 5
+
+        Best Parameters:
+        {
+  "max_features": 6243,
+  "ngram_range": [
+    1,
+    1
+  ],
+  "iterations": 639,
+  "depth": 5,
+  "learning_rate": 0.0029375384576328283,
+  "l2_leaf_reg": 3.3323645788192616e-08,
+  "border_count": 226,
+  "bagging_temperature": 0.6011150117432088
+}
+            

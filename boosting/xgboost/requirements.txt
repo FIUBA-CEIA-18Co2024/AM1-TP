@@ -1,0 +1,12 @@
+nltk
+numpy
+pandas
+textblob
+scikit-learn
+IPython
+matplotlib
+seaborn
+xgboost
+torch
+GPUtil
+catboost
