@@ -56,7 +56,7 @@ def split_data_stratified(X, y, test_size=0.2, random_state=42):
 
     return X_train, X_test, y_train, y_test
 
-def objective(trial, X_train, X_test, y_train, y_test, batch_size, threads):
+def objective(trial, X_train, X_test, y_train, y_test, threads):
     params = {
         'vectorizer__max_features': trial.suggest_int('vectorizer__max_features', 1000, 5000),
         'vectorizer__ngram_range': (1, 2),
@@ -81,18 +81,15 @@ def objective(trial, X_train, X_test, y_train, y_test, batch_size, threads):
         ))
     ])
 
-    # Implement batching
-    for start in range(0, len(X_train), batch_size):
-        end = start + batch_size
-        pipeline.fit(X_train[start:end], y_train[start:end])
+    pipeline.fit(X_train, y_train)
 
     y_pred = pipeline.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
     return accuracy
 
-def train(X_train, X_test, y_train, y_test, trials, run_dir, batch_size=32, threads=4):
+def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
     study = optuna.create_study(direction='maximize')
-    study.optimize(lambda trial: objective(trial, X_train, X_test, y_train, y_test, batch_size, threads), n_trials=trials, show_progress_bar=True)
+    study.optimize(lambda trial: objective(trial, X_train, X_test, y_train, y_test, threads), n_trials=trials, show_progress_bar=True)
 
     print("Best trial:")
     trial = study.best_trial
@@ -119,10 +116,7 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, batch_size=32, thre
         ))
     ])
 
-    # Implement batching
-    for start in range(0, len(X_train), batch_size):
-        end = start + batch_size
-        final_pipeline.fit(X_train[start:end], y_train[start:end])
+    final_pipeline.fit(X_train, y_train)
 
     y_train_pred = final_pipeline.predict(X_train)
     y_test_pred = final_pipeline.predict(X_test)
@@ -135,8 +129,7 @@ if __name__ == '__main__':
     print("Starting CatBoost optimization...")
     use_gpu = False  # Set to True to use GPU
     hyperparameters_trials = 3
-    batch_size = 32
-    threads = 4
+    threads = 4  # Number of CPU threads for CatBoost
 
     # Create a unique directory for this run
     run_id = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
@@ -151,8 +144,4 @@ if __name__ == '__main__':
     X_train, X_test, y_train, y_test = split_data_stratified(X, y)
     
     # Train and optimize model hyperparameters
-    train(X_train, X_test, y_train, y_test, 
-          trials=hyperparameters_trials, 
-          run_dir=run_dir, 
-          batch_size=batch_size,
-          threads=threads)
+    train(X_train, X_test, y_train, y_test, trials=hyperparameters_trials, run_dir=run_dir, threads=threads)
