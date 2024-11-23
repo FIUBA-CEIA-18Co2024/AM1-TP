@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 from datetime import datetime
 
@@ -97,6 +98,10 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
     print("  Params: ")
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
+        
+    # Save best parameters to JSON file
+    with open(os.path.join(run_dir, 'best_params.json'), 'w') as f:
+        json.dump(trial.params, f, indent=4)
 
     # Train final model with best parameters
     final_pipeline = Pipeline([
@@ -117,6 +122,10 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
     ])
 
     final_pipeline.fit(X_train, y_train)
+    
+    # Save the trained model
+    model_path = os.path.join(run_dir, 'best_model.cbm')
+    final_pipeline.named_steps['classifier'].save_model(model_path)
 
     y_train_pred = final_pipeline.predict(X_train)
     y_test_pred = final_pipeline.predict(X_test)
