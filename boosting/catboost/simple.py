@@ -11,9 +11,11 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from catboost import CatBoostClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
+
+
 
 def plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, save_path):
     """Plot confusion matrices for train and test sets side by side"""
@@ -39,6 +41,40 @@ def plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, save_pat
     plt.savefig(save_path)
     plt.close()
 
+def plot_hyperparameter_evolution(study, save_path, metric):
+    """Plot evolution of hyperparameters vs metric (accuracy or f1-score)"""
+    trials_df = pd.DataFrame([
+        {**t.params, metric: t.values[0] if metric == 'accuracy' else t.values[1]}
+        for t in study.trials if t.values is not None
+    ])
+
+    num_params = trials_df.select_dtypes(include=[np.number]).columns
+    num_params = [col for col in num_params if col != metric]
+
+    n_params = len(num_params)
+    n_cols = 2
+    n_rows = (n_params + 1) // 2
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
+    axes = axes.ravel()
+
+    for i, param in enumerate(num_params):
+        ax = axes[i]
+        sorted_data = trials_df.sort_values(param)
+        ax.plot(sorted_data[param], sorted_data[metric], 'b-', alpha=0.3)
+        ax.scatter(sorted_data[param], sorted_data[metric], alpha=0.5)
+        ax.set_xlabel(param)
+        ax.set_ylabel(metric.capitalize())
+        ax.set_title(f'{metric.capitalize()} vs {param}')
+        ax.grid(True, linestyle='--', alpha=0.7)
+
+    for j in range(i+1, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+    
 def split_data_stratified(X, y, test_size=0.2, random_state=42):
     """Split data ensuring proportional representation of all classes"""
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -86,6 +122,8 @@ def objective(trial, X_train, X_test, y_train, y_test, threads):
 
     y_pred = pipeline.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, average='weighted')
+    trial.set_user_attr('f1', f1)
     return accuracy
 
 def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
@@ -132,7 +170,12 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
 
     # Plot and save confusion matrices
     plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, os.path.join(run_dir, 'confusion_matrices.png'))
-   
+
+    # Plot and save hyperparameter evolution vs accuracy
+    plot_hyperparameter_evolution(study, os.path.join(run_dir, 'hyperparameter_evolution_accuracy.png'), metric='accuracy')
+
+    # Plot and save hyperparameter evolution vs f1-score
+    plot_hyperparameter_evolution(study, os.path.join(run_dir, 'hyperparameter_evolution_f1.png'), metric='f1')
     
 if __name__ == '__main__':
     print("Starting CatBoost optimization...")
