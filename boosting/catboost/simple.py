@@ -44,8 +44,8 @@ def plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, save_pat
 def plot_hyperparameter_evolution(study, save_path, metric):
     """Plot evolution of hyperparameters vs metric (accuracy or f1-score)"""
     trials_df = pd.DataFrame([
-        {**t.params, metric: t.values[0] if metric == 'accuracy' else t.values[1]}
-        for t in study.trials if t.values is not None
+        {**t.params, metric: t.value if metric == 'accuracy' else t.user_attrs.get('f1')}
+        for t in study.trials if t.value is not None and (metric == 'accuracy' or 'f1' in t.user_attrs)
     ])
 
     num_params = trials_df.select_dtypes(include=[np.number]).columns
@@ -58,11 +58,14 @@ def plot_hyperparameter_evolution(study, save_path, metric):
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
     axes = axes.ravel()
 
+    best_value = trials_df[metric].max()
+
     for i, param in enumerate(num_params):
         ax = axes[i]
         sorted_data = trials_df.sort_values(param)
         ax.plot(sorted_data[param], sorted_data[metric], 'b-', alpha=0.3)
         ax.scatter(sorted_data[param], sorted_data[metric], alpha=0.5)
+        ax.axhline(y=best_value, color='r', linestyle='--', linewidth=2)
         ax.set_xlabel(param)
         ax.set_ylabel(metric.capitalize())
         ax.set_title(f'{metric.capitalize()} vs {param}')
@@ -74,6 +77,46 @@ def plot_hyperparameter_evolution(study, save_path, metric):
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
+
+def plot_feature_importance(vectorizer, classifier, save_path, top_n=20):
+    """Plot top features based on their importance"""
+    try:
+        # Get feature names
+        feature_names = vectorizer.get_feature_names_out()
+
+        # Get feature importance scores
+        importance_scores = classifier.get_feature_importance()
+
+        # Create DataFrame with features and their importance
+        feature_importance = pd.DataFrame({
+            'feature': feature_names,
+            'importance': importance_scores
+        })
+
+        # Sort by importance and get top N features
+        top_features = feature_importance.nlargest(top_n, 'importance')
+
+        # Create plot
+        plt.figure(figsize=(12, 8))
+        bars = plt.barh(range(len(top_features)), top_features['importance'])
+        plt.yticks(range(len(top_features)), top_features['feature'])
+        plt.xlabel('Feature Importance')
+        plt.title(f'Top {top_n} Most Important Features')
+
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(width, bar.get_y() + bar.get_height()/2,
+                     f'{width:.4f}',
+                     ha='left', va='center', fontweight='bold')
+
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close()
+
+    except Exception as e:
+        print(f"Error plotting feature importance: {str(e)}")
     
 def split_data_stratified(X, y, test_size=0.2, random_state=42):
     """Split data ensuring proportional representation of all classes"""
@@ -99,7 +142,7 @@ def objective(trial, X_train, X_test, y_train, y_test, threads):
         'vectorizer__ngram_range': (1, 2),
         'classifier__iterations': trial.suggest_int('classifier__iterations', 100, 1000),
         'classifier__depth': trial.suggest_int('classifier__depth', 4, 8),
-        'classifier__learning_rate': trial.suggest_float('classifier__learning_rate', 0.01, 0.3),
+        'classifier__learning_rate': trial.suggest_float('classifier__learning_rate', 0.01, 0.7),
         'classifier__l2_leaf_reg': trial.suggest_float('classifier__l2_leaf_reg', 1.0, 10.0),
         'classifier__thread_count': threads  # Limit to 4 CPU cores
     }
@@ -176,12 +219,16 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
 
     # Plot and save hyperparameter evolution vs f1-score
     plot_hyperparameter_evolution(study, os.path.join(run_dir, 'hyperparameter_evolution_f1.png'), metric='f1')
-    
+
+    # Plot and save feature importance
+    plot_feature_importance(final_pipeline.named_steps['vectorizer'], final_pipeline.named_steps['classifier'], os.path.join(run_dir, 'feature_importance.png'))
+
+
 if __name__ == '__main__':
     print("Starting CatBoost optimization...")
-    use_gpu = False  # Set to True to use GPU
+    use_gpu = True  # Set to True to use GPU
     hyperparameters_trials = 3
-    threads = 4  # Number of CPU threads for CatBoost
+    threads = 10  # Number of CPU threads for CatBoost
 
     # Create a unique directory for this run
     run_id = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
