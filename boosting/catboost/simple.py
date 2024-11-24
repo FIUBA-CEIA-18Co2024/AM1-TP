@@ -117,7 +117,25 @@ def plot_feature_importance(vectorizer, classifier, save_path, top_n=20):
 
     except Exception as e:
         print(f"Error plotting feature importance: {str(e)}")
-    
+
+def plot_hyperparameter_importance(study, save_path):
+    """Plot hyperparameter importance vs accuracy"""
+    importance = optuna.importance.get_param_importances(study)
+
+    plt.figure(figsize=(10, 6))
+    importance_df = pd.DataFrame(
+        importance.items(),
+        columns=['Parameter', 'Importance']
+    ).sort_values('Importance', ascending=True)
+
+    plt.barh(range(len(importance_df)), importance_df['Importance'])
+    plt.yticks(range(len(importance_df)), importance_df['Parameter'])
+    plt.xlabel('Importance')
+    plt.title('Hyperparameter Importance')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+ 
 def split_data_stratified(X, y, test_size=0.2, random_state=42):
     """Split data ensuring proportional representation of all classes"""
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -138,12 +156,13 @@ def split_data_stratified(X, y, test_size=0.2, random_state=42):
 
 def objective(trial, X_train, X_test, y_train, y_test, threads):
     params = {
-        'vectorizer__max_features': trial.suggest_int('vectorizer__max_features', 1000, 5000),
+        'vectorizer__max_features': trial.suggest_int('vectorizer__max_features', 1000, 5500),
         'vectorizer__ngram_range': (1, 2),
-        'classifier__iterations': trial.suggest_int('classifier__iterations', 100, 1000),
+        'classifier__iterations': trial.suggest_int('classifier__iterations', 100, 1200),
         'classifier__depth': trial.suggest_int('classifier__depth', 4, 8),
         'classifier__learning_rate': trial.suggest_float('classifier__learning_rate', 0.01, 0.7),
         'classifier__l2_leaf_reg': trial.suggest_float('classifier__l2_leaf_reg', 1.0, 10.0),
+        'classifier__bagging_temperature': trial.suggest_float('classifier__bagging_temperature', 0.0, 1.0),
         'classifier__thread_count': threads  # Limit to 4 CPU cores
     }
 
@@ -154,7 +173,9 @@ def objective(trial, X_train, X_test, y_train, y_test, threads):
             depth=params['classifier__depth'],
             learning_rate=params['classifier__learning_rate'],
             l2_leaf_reg=params['classifier__l2_leaf_reg'],
-            thread_count=params['classifier__thread_count'],
+            bootstrap_type='Bayesian',  # Specify Bayesian bootstrap type
+            bagging_temperature=params['classifier__bagging_temperature'],
+            thread_count=threads,
             task_type='GPU' if use_gpu else 'CPU',
             devices='0' if use_gpu else None,
             verbose=False
@@ -223,11 +244,13 @@ def train(X_train, X_test, y_train, y_test, trials, run_dir, threads):
     # Plot and save feature importance
     plot_feature_importance(final_pipeline.named_steps['vectorizer'], final_pipeline.named_steps['classifier'], os.path.join(run_dir, 'feature_importance.png'))
 
+    # Plot and save hyperparameter importance
+    plot_hyperparameter_importance(study, os.path.join(run_dir, 'hyperparameter_importance.png'))
 
 if __name__ == '__main__':
     print("Starting CatBoost optimization...")
     use_gpu = True  # Set to True to use GPU
-    hyperparameters_trials = 3
+    hyperparameters_trials = 50 # 300
     threads = 10  # Number of CPU threads for CatBoost
 
     # Create a unique directory for this run
@@ -237,7 +260,7 @@ if __name__ == '__main__':
     os.makedirs(run_dir, exist_ok=True)
 
     # Load and prepare data
-    dataset = pd.read_csv('../../data/cleaned_dataset_processed_balanced.csv').sample(n=1000, random_state=42)
+    dataset = pd.read_csv('../../data/cleaned_dataset_processed_balanced.csv').sample(n=2500, random_state=42)
     X = dataset['cleaned_review']
     y = dataset['rating']
     X_train, X_test, y_train, y_test = split_data_stratified(X, y)
