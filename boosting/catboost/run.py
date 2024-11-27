@@ -1,56 +1,53 @@
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-
-# Full imports section should look like:
-import nltk
-import time
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score  # Added accuracy_score
-from sklearn.base import BaseEstimator, TransformerMixin
-import scipy.sparse
-from catboost import CatBoostClassifier
-import optuna
-import warnings
-import GPUtil
-from threading import Thread
-import uuid
-import json
 import os
+import json
+import time
+import uuid
+import argparse
 from datetime import datetime
 
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-warnings.filterwarnings('ignore')
+import optuna
+import numpy as np
+import pandas as pd
+from sklearn.pipeline import Pipeline
+from catboost import CatBoostClassifier
+from sklearn.preprocessing import MaxAbsScaler
+from sklearn.decomposition import TruncatedSVD
+from sklearn.model_selection import cross_val_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 
-def split_data_stratified(X, y, test_size=0.2, random_state=42):
-    """Split data ensuring proportional representation of all classes"""
-    sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
 
-    for train_idx, test_idx in sss.split(X, y):
-        X_train = X.iloc[train_idx]
-        X_test = X.iloc[test_idx]
-        y_train = y.iloc[train_idx]
-        y_test = y.iloc[test_idx]
 
-    print("Class distribution in splits:")
-    print("\nTraining set:")
-    print(y_train.value_counts().sort_index())
-    print("\nTest set:")
-    print(y_test.value_counts().sort_index())
+def plot_metrics(metrics_path, save_path):
+    """Plot metrics from JSON file with hue as the metric type (accuracy/f1 score)"""
+    with open(metrics_path, 'r') as f:
+        metrics = json.load(f)
 
-    return X_train, X_test, y_train, y_test
+    # Prepare data for plotting
+    data = []
+    for metric, value in metrics.items():
+        data.append({
+            'Metric': metric,
+            'Value': value,
+            'Type': 'Accuracy' if 'accuracy' in metric else 'F1 Score'
+        })
 
-def monitor_gpu():
-    """Monitor GPU usage and memory"""
-    while True:
-        GPUs = GPUtil.getGPUs()
-        for gpu in GPUs:
-            print(f'\rGPU {gpu.id} - Memory: {gpu.memoryUsed}MB/{gpu.memoryTotal}MB, Load: {gpu.load*100}%', end='')
-        time.sleep(1)
+    df = pd.DataFrame(data)
+
+    # Create bar plot
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x='Metric', y='Value', hue='Type', data=df)
+    plt.title('Model Performance Metrics')
+    plt.xlabel('Metric')
+    plt.ylabel('Value')
+    plt.legend(title='Metric Type')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 def plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, save_path):
     """Plot confusion matrices for train and test sets side by side"""
@@ -76,6 +73,83 @@ def plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, save_pat
     plt.savefig(save_path)
     plt.close()
 
+def plot_hyperparameter_evolution(study, save_path, metric):
+    """Plot evolution of hyperparameters vs metric (accuracy or f1-score)"""
+    trials_df = pd.DataFrame([
+        {**t.params, metric: t.value if metric == 'accuracy' else t.user_attrs.get('f1')}
+        for t in study.trials if t.value is not None and (metric == 'accuracy' or 'f1' in t.user_attrs)
+    ])
+
+    num_params = trials_df.select_dtypes(include=[np.number]).columns
+    num_params = [col for col in num_params if col != metric]
+
+    n_params = len(num_params)
+    n_cols = 2
+    n_rows = (n_params + 1) // 2
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
+    axes = axes.ravel()
+
+    best_value = trials_df[metric].max()
+
+    for i, param in enumerate(num_params):
+        ax = axes[i]
+        sorted_data = trials_df.sort_values(param)
+        ax.plot(sorted_data[param], sorted_data[metric], 'b-', alpha=0.3)
+        ax.scatter(sorted_data[param], sorted_data[metric], alpha=0.5)
+        ax.axhline(y=best_value, color='r', linestyle='--', linewidth=2)
+        ax.set_xlabel(param)
+        ax.set_ylabel(metric.capitalize())
+        ax.set_title(f'{metric.capitalize()} vs {param}')
+        ax.grid(True, linestyle='--', alpha=0.7)
+
+    for j in range(i+1, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+def plot_feature_importance(vectorizer, classifier, save_path, top_n=20):
+    """Plot top features based on their importance"""
+    try:
+        # Get feature names
+        feature_names = vectorizer.get_feature_names_out()
+
+        # Get feature importance scores
+        importance_scores = classifier.get_feature_importance()
+
+        # Create DataFrame with features and their importance
+        feature_importance = pd.DataFrame({
+            'feature': feature_names,
+            'importance': importance_scores
+        })
+
+        # Sort by importance and get top N features
+        top_features = feature_importance.nlargest(top_n, 'importance')
+
+        # Create plot
+        plt.figure(figsize=(12, 8))
+        bars = plt.barh(range(len(top_features)), top_features['importance'])
+        plt.yticks(range(len(top_features)), top_features['feature'])
+        plt.xlabel('Feature Importance')
+        plt.title(f'Top {top_n} Most Important Features')
+
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(width, bar.get_y() + bar.get_height()/2,
+                     f'{width:.4f}',
+                     ha='left', va='center', fontweight='bold')
+
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        plt.savefig(save_path)
+        plt.close()
+
+    except Exception as e:
+        print(f"Error plotting feature importance: {str(e)}")
+
 def plot_hyperparameter_importance(study, save_path):
     """Plot hyperparameter importance vs accuracy"""
     importance = optuna.importance.get_param_importances(study)
@@ -94,397 +168,222 @@ def plot_hyperparameter_importance(study, save_path):
     plt.savefig(save_path)
     plt.close()
 
-def plot_accuracy_vs_params(study, save_path):
-    """Plot accuracy vs different hyperparameters"""
-    # Get trials data
-    trials_df = pd.DataFrame([
-        {**t.params, 'accuracy': t.value}
-        for t in study.trials if t.value is not None
+def split_data_stratified(X, y, test_size=0.2, random_state=42):
+    """Split data ensuring proportional representation of all classes"""
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+
+    for train_idx, test_idx in sss.split(X, y):
+        X_train = X.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_train = y.iloc[train_idx]
+        y_test = y.iloc[test_idx]
+
+    print("Class distribution in splits:")
+    print("\nTraining set:")
+    print(y_train.value_counts().sort_index())
+    print("\nTest set:")
+    print(y_test.value_counts().sort_index())
+
+    return X_train, X_test, y_train, y_test
+
+def objective(trial, X_train, y_train, threads):
+    params = {
+        'vectorizer__max_features': trial.suggest_int('vectorizer__max_features', 3000, 6000),
+        'vectorizer__ngram_range': (1, 2),
+        'vectorizer__max_df': trial.suggest_float('vectorizer__max_df', 0.9, 0.95),
+        'vectorizer__min_df': trial.suggest_int('vectorizer__min_df', 8, 10),
+        'classifier__iterations': trial.suggest_int('classifier__iterations', 600, 1300),
+        'classifier__depth': trial.suggest_int('classifier__depth', 4, 8),
+        'classifier__learning_rate': trial.suggest_float('classifier__learning_rate', 0.01, 0.7),
+        'classifier__l2_leaf_reg': trial.suggest_float('classifier__l2_leaf_reg', 1.0, 10.0),
+        'classifier__bagging_temperature': trial.suggest_float('classifier__bagging_temperature', 0.0, 1.0),
+        'classifier__thread_count': threads  # Limit CPU cores
+    }
+
+    # Create a temporary pipeline to calculate the number of features
+    temp_pipeline = Pipeline([
+        ('vectorizer', TfidfVectorizer(max_features=params['vectorizer__max_features'], ngram_range=params['vectorizer__ngram_range']))
     ])
 
-    # Select numerical parameters
-    num_params = trials_df.select_dtypes(include=[np.number]).columns
-    num_params = [col for col in num_params if col != 'accuracy']
+    temp_pipeline.fit(X_train)
+    n_features = len(temp_pipeline.named_steps['vectorizer'].get_feature_names_out())
 
-    # Create subplots for each parameter
-    n_params = len(num_params)
-    n_cols = 2
-    n_rows = (n_params + 1) // 2
+    # Ensure n_components is less than or equal to n_features
+    n_components = trial.suggest_int('dim_reduction__n_components', 50, min(300, n_features))
 
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
-    axes = axes.ravel()
-
-    for i, param in enumerate(num_params):
-        ax = axes[i]
-        # Sort by parameter value
-        sorted_data = trials_df.sort_values(param)
-        # Plot line and points
-        ax.plot(sorted_data[param], sorted_data['accuracy'], 'b-', alpha=0.3)  # Line
-        ax.scatter(sorted_data[param], sorted_data['accuracy'], alpha=0.5)      # Points
-        ax.set_xlabel(param)
-        ax.set_ylabel('Accuracy')
-        ax.set_title(f'Accuracy vs {param}')
-        ax.grid(True, linestyle='--', alpha=0.7)
-
-    # Remove empty subplots
-    for j in range(i+1, len(axes)):
-        fig.delaxes(axes[j])
-
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.close()
-
-def plot_feature_importance(vectorizer, classifier, save_path):
-    """Plot top features based on their importance"""
-    try:
-        # Get feature names
-        feature_names = vectorizer.get_feature_names_out()
-
-        # Get feature importance scores
-        importance_scores = classifier.get_feature_importance()
-
-        # Create DataFrame with features and their importance
-        feature_importance = pd.DataFrame({
-            'feature': feature_names,
-            'importance': importance_scores
-        })
-
-        # Sort by importance and get top 20 features
-        top_features = feature_importance.nlargest(20, 'importance')
-
-        # Create plot
-        plt.figure(figsize=(12, 8))
-        bars = plt.barh(range(len(top_features)), top_features['importance'])
-        plt.yticks(range(len(top_features)), top_features['feature'])
-        plt.xlabel('Feature Importance')
-        plt.title('Top 20 Most Important Features')
-
-        # Add value labels
-        for bar in bars:
-            width = bar.get_width()
-            plt.text(width, bar.get_y() + bar.get_height()/2,
-                    f'{width:.4f}',
-                    ha='left', va='center', fontweight='bold')
-
-        plt.grid(True, linestyle='--', alpha=0.7)
-        plt.tight_layout()
-        plt.savefig(save_path)
-        plt.close()
-
-    except Exception as e:
-        print(f"Error plotting feature importance: {str(e)}")
-
-def plot_accuracy_history(study, save_path):
-    """Plot accuracy per iteration"""
-    # Get trials data
-    trials_df = pd.DataFrame([
-        {'number': t.number, 'accuracy': t.value}
-        for t in study.trials if t.value is not None
+    pipeline = Pipeline([
+        ('vectorizer', TfidfVectorizer(
+            max_features=params['vectorizer__max_features'],
+            ngram_range=params['vectorizer__ngram_range'],
+            max_df=params['vectorizer__max_df'],
+            min_df=params['vectorizer__min_df'])
+        ),
+        ('dim_reduction', TruncatedSVD(
+            n_components=n_components,
+            random_state=42)
+        ),
+        ('scaler', MaxAbsScaler()),
+        ('classifier', CatBoostClassifier(
+            iterations=params['classifier__iterations'],
+            depth=params['classifier__depth'],
+            learning_rate=params['classifier__learning_rate'],
+            l2_leaf_reg=params['classifier__l2_leaf_reg'],
+            bootstrap_type='Bayesian',  # Specify Bayesian bootstrap type
+            bagging_temperature=params['classifier__bagging_temperature'],
+            thread_count=threads,
+            task_type='GPU' if use_gpu else 'CPU',
+            devices='0' if use_gpu else None,
+            verbose=False
+        ))
     ])
 
-    # Plot accuracy history
-    plt.figure(figsize=(10, 6))
-    plt.plot(trials_df['number'], trials_df['accuracy'], 'b-', label='Trial accuracy')
-    plt.plot(trials_df['number'], trials_df['accuracy'].cummax(), 'r-', label='Best accuracy')
-    plt.xlabel('Trial number')
-    plt.ylabel('Accuracy')
-    plt.title('Accuracy History')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.close()
+    # Use cross-validation on training data only
+    cv_scores_accuracy = cross_val_score(pipeline, X_train, y_train, cv=3, scoring='accuracy')
+    cv_scores_f1 = cross_val_score(pipeline, X_train, y_train, cv=3, scoring='f1_weighted')
 
-def create_run_directory():
-    """Create a unique directory for this run"""
+    # Use mean of cross-validation scores
+    mean_accuracy = cv_scores_accuracy.mean()
+    mean_f1 = cv_scores_f1.mean()
+
+    trial.set_user_attr('f1', mean_f1)
+    return mean_accuracy
+
+def train(X_train, X_test, y_train, y_test, trials, run_dir, threads, description=None):
+    study = optuna.create_study(direction='maximize')
+    study.optimize(lambda trial: objective(trial, X_train, y_train, threads), n_trials=trials, show_progress_bar=True)
+
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"  Value: {trial.value}")
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
+
+    # Save best parameters to JSON file
+    best_params = trial.params
+    best_params['accuracy'] = trial.value
+    best_params['f1_score'] = trial.user_attrs.get('f1')
+    best_params['description'] = description
+
+    # Save best parameters to JSON file
+    with open(os.path.join(run_dir, 'best_params.json'), 'w') as f:
+        json.dump(best_params, f, indent=4)
+
+    # Train final model with best parameters
+    final_pipeline = Pipeline([
+        ('vectorizer', TfidfVectorizer(
+            max_features=trial.params['vectorizer__max_features'],
+            ngram_range=(1, 2),
+            max_df=trial.params['vectorizer__max_df'],
+            min_df=trial.params['vectorizer__min_df']
+        )),
+        ('dim_reduction', TruncatedSVD(
+            n_components=trial.params['dim_reduction__n_components'],
+            random_state=42
+        )),
+        ('scaler', MaxAbsScaler()),
+        ('classifier', CatBoostClassifier(
+            iterations=trial.params['classifier__iterations'],
+            depth=trial.params['classifier__depth'],
+            learning_rate=trial.params['classifier__learning_rate'],
+            l2_leaf_reg=trial.params['classifier__l2_leaf_reg'],
+            bagging_temperature=trial.params['classifier__bagging_temperature'],
+            thread_count=threads,
+            task_type='GPU' if use_gpu else 'CPU',
+            devices='0' if use_gpu else None,
+            verbose=False
+        ))
+    ])
+
+    final_pipeline.fit(X_train, y_train)
+
+    # Save the trained model
+    model_path = os.path.join(run_dir, 'best_model.cbm')
+    final_pipeline.named_steps['classifier'].save_model(model_path)
+
+    y_train_pred = final_pipeline.predict(X_train)
+    y_test_pred = final_pipeline.predict(X_test)
+
+    # Calculate metrics
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    test_accuracy = accuracy_score(y_test, y_test_pred)
+    train_f1 = f1_score(y_train, y_train_pred, average='weighted')
+    test_f1 = f1_score(y_test, y_test_pred, average='weighted')
+
+    # Save metrics to JSON file
+    metrics = {
+        'train_accuracy': train_accuracy,
+        'test_accuracy': test_accuracy,
+        'train_f1_score': train_f1,
+        'test_f1_score': test_f1
+    }
+
+    metrics_path = os.path.join(run_dir, 'metrics.json')
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics, f, indent=4)
+
+    with open(os.path.join(run_dir, 'metrics.json'), 'w') as f:
+        json.dump(metrics, f, indent=4)
+
+    # Plot and save confusion matrices
+    plot_confusion_matrices(y_train, y_train_pred, y_test, y_test_pred, os.path.join(run_dir, 'confusion_matrices.png'))
+
+    # Plot and save hyperparameter evolution vs accuracy
+    plot_hyperparameter_evolution(study, os.path.join(run_dir, 'hyperparameter_evolution_accuracy.png'), metric='accuracy')
+
+    # Plot and save hyperparameter evolution vs f1-score
+    plot_hyperparameter_evolution(study, os.path.join(run_dir, 'hyperparameter_evolution_f1.png'), metric='f1')
+
+    # Plot and save feature importance
+    plot_feature_importance(final_pipeline.named_steps['vectorizer'], final_pipeline.named_steps['classifier'], os.path.join(run_dir, 'feature_importance.png'))
+
+    # Plot and save hyperparameter importance
+    plot_hyperparameter_importance(study, os.path.join(run_dir, 'hyperparameter_importance.png'))
+
+    # Plot and save metrics
+    plot_metrics(metrics_path, os.path.join(run_dir, 'metrics_plot.png'))
+
+if __name__ == '__main__':
+    # TODO: refactor this code and move it to a class or main function
+    start_time = time.time()  # Record the start time
+
+    parser = argparse.ArgumentParser(description='CatBoost optimization script')
+    parser.add_argument('--description', type=str, required=True, help='Description of the run')
+    args = parser.parse_args()
+
+    print("Starting CatBoost optimization...")
+    use_gpu = True  # Set to True to use GPU
+    hyperparameters_trials = 3 # 300
+    dataset_samples = 1000
+    threads = 10  # Number of CPU threads for CatBoost
+
+    # Create a unique directory for this run
     run_id = str(uuid.uuid4())[:8]  # Use first 8 characters of UUID
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_dir = f"runs/run_{timestamp}_{run_id}"
     os.makedirs(run_dir, exist_ok=True)
-    return run_dir
-
-def save_run_results(study, final_model, y_train, y_train_pred, y_test, y_test_pred, run_dir):
-    """Save all results and plots for a specific run"""
-    # Create subdirectories
-    plots_dir = os.path.join(run_dir, 'plots')
-    os.makedirs(plots_dir, exist_ok=True)
-
-    # Save plots with correct paths
-    plot_confusion_matrices(
-        y_train, y_train_pred, y_test, y_test_pred,
-        os.path.join(plots_dir, 'confusion_matrices.png')
-    )
-
-    plot_hyperparameter_importance(
-        study,
-        os.path.join(plots_dir, 'hyperparameter_importance.png')
-    )
-
-    plot_accuracy_vs_params(
-        study,
-        os.path.join(plots_dir, 'accuracy_vs_params.png')
-    )
-
-    plot_accuracy_history(
-        study,
-        os.path.join(plots_dir, 'accuracy_history.png')
-    )
-
-    # Get vectorizer and classifier from final model
-    vectorizer = final_model.named_steps['vectorizer']
-    classifier = final_model.named_steps['classifier']
-
-    # Plot feature importance
-    plot_feature_importance(
-        vectorizer, classifier,
-        os.path.join(plots_dir, 'feature_importance.png')
-    )
-
-    # Save study results
-    study_results = {
-        'run_id': os.path.basename(run_dir),
-        'timestamp': datetime.now().isoformat(),
-        'best_params': study.best_params,
-        'best_value': study.best_value,
-        'n_trials': len(study.trials),
-        'train_accuracy': accuracy_score(y_train, y_train_pred),
-        'test_accuracy': accuracy_score(y_test, y_test_pred),
-        'train_report': classification_report(y_train, y_train_pred, output_dict=True),
-        'test_report': classification_report(y_test, y_test_pred, output_dict=True),
-        'trial_history': [
-            {
-                'trial_number': t.number,
-                'value': t.value,
-                'params': t.params
-            }
-            for t in study.trials if t.value is not None
-        ]
-    }
-
-    # Save results to JSON
-    with open(os.path.join(run_dir, 'results.json'), 'w') as f:
-        json.dump(study_results, f, indent=4)
-
-    # Save run summary
-    summary = f"""
-        Run Summary
-        ==========
-        Run ID: {study_results['run_id']}
-        Timestamp: {study_results['timestamp']}
-        Best Accuracy: {study_results['best_value']:.4f}
-        Train Accuracy: {study_results['train_accuracy']:.4f}
-        Test Accuracy: {study_results['test_accuracy']:.4f}
-        Number of Trials: {study_results['n_trials']}
-
-        Best Parameters:
-        {json.dumps(study_results['best_params'], indent=2)}
-            """
-
-    with open(os.path.join(run_dir, 'summary.txt'), 'w') as f:
-        f.write(summary)
-
-    return study_results
-
-def train_with_optuna(X_train, X_test, y_train, y_test, n_trials=15):  # More trials
-    """Train model with focus on quality"""
-    run_dir = create_run_directory()
-    print(f"\nStarting new run: {os.path.basename(run_dir)}")
-
-    study = optuna.create_study(
-        direction='maximize',
-        sampler=optuna.samplers.TPESampler(
-            n_startup_trials=5,  # More random trials for exploration
-            seed=42
-        )
-    )
-
-    try:
-        study.optimize(
-            lambda trial: objective(trial, X_train, X_test, y_train, y_test),
-            n_trials=n_trials,
-            show_progress_bar=True
-        )
-
-        print("\nBest trial:")
-        trial = study.best_trial
-        print(f"Value: {trial.value:.3f}")
-        print("\nBest parameters:")
-        for key, value in trial.params.items():
-            print(f"    {key}: {value}")
-
-        # Train final model with best parameters
-        final_pipeline = Pipeline([
-            ('vectorizer', TfidfVectorizer(
-                max_features=trial.params['max_features'],
-                ngram_range=trial.params['ngram_range']
-            )),
-            ('classifier', create_catboost_classifier(params=trial.params))
-        ])
-
-        print("\nTraining final model with best parameters...")
-        final_pipeline.fit(X_train, y_train)
-
-        # Generate predictions
-        y_train_pred = final_pipeline.predict(X_train)
-        y_test_pred = final_pipeline.predict(X_test)
-
-        # Save all results
-        results = save_run_results(
-            study, final_pipeline,
-            y_train, y_train_pred,
-            y_test, y_test_pred,
-            run_dir
-        )
-
-        print(f"\nResults saved in: {run_dir}")
-        return final_pipeline, study, results, run_dir
-
-    except Exception as e:
-        print(f"Optimization failed: {str(e)}")
-        # Save error information
-        error_info = {
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }
-        with open(os.path.join(run_dir, 'error.json'), 'w') as f:
-            json.dump(error_info, f, indent=4)
-        return None, study, None, run_dir
-
-def create_catboost_classifier(params=None):
-    """Create a CatBoost classifier optimized for GPU with focus on model quality"""
-    try:
-        # Base GPU parameters optimized for quality
-        gpu_params = {
-            'task_type': 'GPU',
-            'devices': '0',
-            'gpu_ram_part': 0.3,
-            'verbose': True,
-            'random_seed': 42,
-            'bootstrap_type': 'Bayesian',  # Changed from Bernoulli to Bayesian
-            'sampling_frequency': 'PerTree',
-            'min_data_in_leaf': 20,
-            'grow_policy': 'SymmetricTree',  # More stable tree growing
-            'random_strength': 1,            # Add randomness to splits
-            'eval_metric': 'Accuracy'
-        }
-
-        if params is not None:
-            model_params = {
-                'iterations': params.get('iterations', 1000),      # More iterations
-                'depth': params.get('depth', 8),                   # Deeper trees
-                'learning_rate': params.get('learning_rate', 0.1),
-                'l2_leaf_reg': params.get('l2_leaf_reg', 3.0),
-                'border_count': params.get('border_count', 128),
-                'bagging_temperature': params.get('bagging_temperature', 1.0)
-            }
-        else:
-            model_params = {}
-
-        all_params = {**gpu_params, **model_params}
-        return CatBoostClassifier(**all_params)
-
-    except Exception as e:
-        print(f"Error creating CatBoost classifier: {str(e)}")
-        return CatBoostClassifier(task_type='CPU', **model_params if params is not None else {})
-
-def objective(trial, X_train, X_test, y_train, y_test):
-    """Optuna objective function optimized for model quality"""
-    params = {
-        # TF-IDF parameters to ensure variance
-        'vectorizer__max_features': trial.suggest_int('max_features', 1000, 5000),
-        'vectorizer__ngram_range': (1,2),
-        'vectorizer__min_df': 5,                # Ignore terms that appear in less than 5 documents
-        'vectorizer__max_df': 0.95,             # Ignore terms that appear in more than 95% of documents
-        'vectorizer__use_idf': True,            # Enable IDF
-        'vectorizer__norm': 'l2',               # Enable normalization
-
-        # CatBoost parameters adjusted for stability
-        'classifier__iterations': trial.suggest_int('iterations', 100, 1000),
-        'classifier__depth': trial.suggest_int('depth', 4, 8),
-        'classifier__learning_rate': trial.suggest_float('learning_rate', 0.03, 0.3),
-        'classifier__l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 1.0, 10.0),
-        'classifier__min_data_in_leaf': 20,     # Ensure enough samples in leaves
-        'classifier__bootstrap_type': 'Bayesian',
-        'classifier__bagging_temperature': trial.suggest_float('bagging_temperature', 0.0, 1.0),
-        'classifier__random_strength': trial.suggest_float('random_strength', 1, 20)
-    }
-
-    pipeline = Pipeline([
-        ('vectorizer', TfidfVectorizer()),
-        ('classifier', CatBoostClassifier(
-            task_type='GPU',
-            devices='0',
-            gpu_ram_part=0.3,
-            verbose=True,
-            random_seed=42,
-            early_stopping_rounds=50,
-            bootstrap_type='Bayesian'  # Consistent bootstrap type
-        ))
-    ])
-
-    pipeline.set_params(**params)
-
-    try:
-        # Add basic data validation
-        if len(set(y_train)) < 2:
-            print("Not enough classes in training data")
-            return 0.0
-
-        # Fit the pipeline
-        pipeline.fit(X_train, y_train)
-
-        # Verify predictions have variance
-        y_pred = pipeline.predict(X_test)
-        if len(set(y_pred)) < 2:
-            print("No variance in predictions")
-            return 0.0
-
-        accuracy = pipeline.score(X_test, y_test)
-        return accuracy
-    except Exception as e:
-        print(f"Trial failed: {str(e)}")
-        return 0.0
-
-def main():
-    print("Starting CatBoost optimization...")
 
     # Load and prepare data
-    dataset = pd.read_csv('../../data/cleaned_dataset_processed_balanced.csv').sample(n=20500, random_state=42)
+    dataset = pd.read_csv('../../data/cleaned_dataset_processed_balanced.csv').sample(n=dataset_samples, random_state=42)
     X = dataset['cleaned_review']
-    y = dataset['rating']
-
-    print(f"\nTotal samples: {len(dataset)}")
-    print("\nClass distribution:")
-    print(y.value_counts().sort_index())
-    print(f"\nAverage review length: {X.str.len().mean():.1f} characters")
-
-
+    y = dataset['three_classes']
+    # y = dataset['rating']
     X_train, X_test, y_train, y_test = split_data_stratified(X, y)
 
-    try:
-        start_time = time.time()
-        final_model, study, results, run_dir = train_with_optuna(
-            X_train, X_test, y_train, y_test, n_trials=25
-        )
-        end_time = time.time()
+    # Train and optimize model hyperparameters
+    train(X_train, X_test, y_train, y_test, trials=hyperparameters_trials, run_dir=run_dir, threads=threads, description=args.description)
 
-        if final_model is not None:
-            print(f"\nTotal training time: {end_time - start_time:.2f} seconds")
-            print(f"\nRun completed successfully. Results saved in: {run_dir}")
-            print("\nGenerated files:")
-            for root, dirs, files in os.walk(run_dir):
-                level = root.replace(run_dir, '').count(os.sep)
-                indent = ' ' * 4 * level
-                print(f"{indent}{os.path.basename(root)}/")
-                subindent = ' ' * 4 * (level + 1)
-                for f in files:
-                    print(f"{subindent}{f}")
-        else:
-            print(f"Training failed. Error information saved in: {run_dir}")
+    end_time = time.time()  # Record the end time
+    total_time = end_time - start_time  # Calculate the total execution time
 
-    except Exception as e:
-        print(f"Error during training: {str(e)}")
-        raise
+    # Load the best_params.json file and add the total execution time
+    best_params_path = os.path.join(run_dir, 'best_params.json')
+    with open(best_params_path, 'r') as f:
+        best_params = json.load(f)
 
-if __name__ == '__main__':
-    main()
+    best_params['total_execution_time'] = total_time
+
+    with open(best_params_path, 'w') as f:
+        json.dump(best_params, f, indent=4)
+
+    print(f"Total execution time: {total_time:.2f} seconds")
