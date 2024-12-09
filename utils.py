@@ -268,8 +268,7 @@ def create_db(name, number=5, type="sqlite"):
             db = RDBStorage(url=db, heartbeat_interval=60, grace_period=120)
             return db
         else:
-            return None
-        
+            return None        
 
 def plot_tsne(X_tsne, y, title="Visualización t-SNE"):
     # Crear un mapeo de colores discretos
