@@ -1,4 +1,5 @@
 import optuna
+import seaborn as sns
 import matplotlib.pyplot as plt
 import optuna.visualization as vis
 
@@ -104,3 +105,19 @@ def plot_parallel_coordinate(study: Study):
     """
     fig = vis.plot_parallel_coordinate(study)
     fig.show()
+
+
+
+def plot_hyperparam_correlation(study: Study):
+    """Plot correlation between hyperparameters and objective
+
+    :param study: Optuna study
+    """
+    df = study.trials_dataframe().filter(like="params_")
+    df["objective"] = study.trials_dataframe()["value"]
+    corr = df.corr()
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr, annot=True, cmap="coolwarm")
+    plt.title("Correlación entre Hiperparámetros y Objetivo")
+    plt.show()
