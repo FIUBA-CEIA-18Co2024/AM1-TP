@@ -1,5 +1,5 @@
-import pandas as pd
 import os
+import pandas as pd
 
 from sklearn.metrics import (
                                 accuracy_score,
@@ -14,31 +14,35 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_score
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler 
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler 
 
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import VotingClassifier
 from sklearn.svm import SVC, LinearSVC
 from catboost import CatBoostClassifier
+from sklearn.ensemble import VotingClassifier
 from sklearn.multiclass import OneVsOneClassifier
 from sklearn.preprocessing import MaxAbsScaler
 from sklearn.model_selection import StratifiedKFold
 
 import optuna
-from optuna.terminator.callback import TerminatorCallback 
 import sqlite3
 from optuna.storages import RDBStorage
 from optuna.integration import CatBoostPruningCallback
+from optuna.terminator.callback import TerminatorCallback 
 
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.manifold import TSNE
+import matplotlib.colors as mcolors
+from mpl_toolkits.mplot3d import Axes3D
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from IPython.display import display, HTML
+
 
 random_state = 42
 max_iter = 20000
@@ -356,3 +360,332 @@ def plot_tsne(X_tsne, y, title="Visualización t-SNE"):
 
     ax.set_title(title)
     plt.show()
+
+### PRE PROCESSING PLOT FUNCTIONS ###
+    
+def highlight_differences(text1, text2):
+    words1 = set(text1.split())
+    words2 = set(text2.split())
+    
+    different_words = words1.symmetric_difference(words2)
+    
+    html = f"""
+    <div style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+            <h4>Original:</h4>
+            <p>{''.join([f'<span style="background-color: orange">{w}</span> ' if w in different_words else f'{w} ' for w in text1.split()])}</p>
+        </div>
+        <div style="flex: 1;">
+            <h4>Cleaned:</h4>
+            <p>{''.join([f'<span style="background-color: orange">{w}</span> ' if w in different_words else f'{w} ' for w in text2.split()])}</p>
+        </div>
+    </div>
+    """
+    return HTML(html)
+
+def create_rating_wordcloud(df, rating=None, 
+                          title=None,
+                          width=800, 
+                          height=400,
+                          background_color='white',
+                          colormap='viridis',
+                          max_words=100):
+    """
+    Create word cloud from reviews with specific rating(s)
+    
+    Parameters:
+    - df: pandas DataFrame with 'rating' and 'cleaned_review' columns
+    - rating: int or list of ints (1-5), if None shows all reviews
+    - title: custom title, if None auto-generates based on rating
+    """
+    
+    # Filter by rating if specified
+    if rating is not None:
+        if isinstance(rating, (int, float)):
+            df_filtered = df[df['rating'] == rating]
+            default_title = f'Word Cloud - Rating {rating}'
+        elif isinstance(rating, list):
+            df_filtered = df[df['rating'].isin(rating)]
+            default_title = f'Word Cloud - Ratings {rating}'
+    else:
+        df_filtered = df
+        default_title = 'Word Cloud - All Ratings'
+    
+    # Check if we have reviews
+    if len(df_filtered) == 0:
+        print(f"No reviews found for rating(s): {rating}")
+        return None
+    
+    # Combine all filtered reviews
+    text = ' '.join(df_filtered['cleaned_review'].astype(str))
+    
+    # Create and configure WordCloud
+    wordcloud = WordCloud(
+        width=width,
+        height=height,
+        background_color=background_color,
+        colormap=colormap,
+        max_words=max_words,
+        random_state=42
+    ).generate(text)
+    
+    # Plot
+    plt.figure(figsize=(width/100, height/100))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.title(title or default_title, fontsize=16, pad=20)
+    plt.tight_layout(pad=0)
+    plt.show()
+    
+    # Return word frequencies
+    return dict(sorted(wordcloud.words_.items(), 
+                      key=lambda x: x[1], 
+                      reverse=True))
+
+def create_rating_wordcloud_comparison(df, rating=None, rating_bis=None,
+                          title=None,
+                          title_bis=None,
+                          width=800, 
+                          height=400,
+                          background_color='white',
+                          colormap='viridis',
+                          max_words=100):
+    """
+    Create word cloud from reviews with specific rating(s)
+    
+    Parameters:
+    - df: pandas DataFrame with 'rating' and 'cleaned_review' columns
+    - rating: int or list of ints (1-5), if None shows all reviews
+    - rating_bis: int or list of ints (1-5), if None shows all reviews
+    - title: custom title, if None auto-generates based on rating
+    """
+    
+    # Filter by rating if specified
+    if rating is not None:
+        if isinstance(rating, (int, float)):
+            df_filtered = df[df['rating'] == rating]
+            default_title = f'Word Cloud - Rating {rating}'
+        elif isinstance(rating, list):
+            df_filtered = df[df['rating'].isin(rating)]
+            default_title = f'Word Cloud - Ratings {rating}'
+    else:
+        df_filtered = df
+        default_title = 'Word Cloud - All Ratings'
+    
+    # Filter by rating_bis if specified
+    if rating_bis is not None:
+        if isinstance(rating_bis, (int, float)):
+            df_filtered_bis = df[df['rating'] == rating_bis]
+            default_title_bis = f'Word Cloud - Rating {rating_bis}'
+        elif isinstance(rating_bis, list):
+            df_filtered_bis = df[df['rating'].isin(rating_bis)]
+            default_title_bis = f'Word Cloud - Ratings {rating_bis}'
+    else:
+        df_filtered_bis = df
+        default_title_bis = 'Word Cloud - All Ratings'
+    
+    # Check if we have reviews
+    if len(df_filtered) == 0:
+        print(f"No reviews found for rating(s): {rating}")
+        return None
+    
+    if len(df_filtered_bis) == 0:
+        print(f"No reviews found for rating(s): {rating_bis}")
+        return None
+    
+    # Combine all filtered reviews
+    text = ' '.join(df_filtered['cleaned_review'].astype(str))
+    text_bis = ' '.join(df_filtered_bis['cleaned_review'].astype(str))
+    
+    # Create and configure WordCloud
+    wordcloud = WordCloud(
+        width=width,
+        height=height,
+        background_color=background_color,
+        colormap=colormap,
+        max_words=max_words,
+        random_state=42
+    ).generate(text)
+    
+    wordcloud_bis = WordCloud(
+        width=width,
+        height=height,
+        background_color=background_color,
+        colormap=colormap,
+        max_words=max_words,
+        random_state=42
+    ).generate(text_bis)
+    
+    # Plot
+    fig, axes = plt.subplots(1, 2, figsize=(width/100*2, height/100))
+    
+    axes[0].imshow(wordcloud, interpolation='bilinear')
+    axes[0].axis('off')
+    axes[0].set_title(title or default_title, fontsize=16, pad=20)
+    
+    axes[1].imshow(wordcloud_bis, interpolation='bilinear')
+    axes[1].axis('off')
+    axes[1].set_title(title_bis or default_title_bis, fontsize=16, pad=20)
+    
+    plt.tight_layout(pad=0)
+    plt.show()
+    
+    # Return word frequencies
+    return {
+        'rating': dict(sorted(wordcloud.words_.items(), key=lambda x: x[1], reverse=True)),
+        'rating_bis': dict(sorted(wordcloud_bis.words_.items(), key=lambda x: x[1], reverse=True))
+    }
+
+def plot_rating_distribution(dataset, figsize=(15, 6), palette='viridis'):
+    """
+    Creates a visualization of rating distribution with bar plot and pie chart.
+    
+    Parameters:
+    -----------
+    dataset : pandas DataFrame
+        DataFrame containing a 'rating' column
+    figsize : tuple, optional
+        Figure size for the plots (width, height)
+    palette : str, optional
+        Color palette to use for the plots
+    
+    Returns:
+    --------
+    dict
+        Dictionary containing the numerical summaries
+    """
+    
+    # Create a figure with two subplots side by side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    
+    # Calculate total records
+    total_records = len(dataset)
+    
+    # 1. Bar plot with seaborn
+    sns.countplot(data=dataset, x='rating', ax=ax1, palette=palette)
+    ax1.set_title(f'Rating Distribution (Bar Plot)\nTotal Records: {total_records:,}')
+    ax1.set_xlabel('Rating')
+    ax1.set_ylabel('Count')
+    
+    # 2. Pie chart with matplotlib
+    rating_counts = dataset['rating'].value_counts()
+    colors = sns.color_palette(palette, n_colors=len(rating_counts))
+    ax2.pie(rating_counts, 
+            labels=rating_counts.index, 
+            autopct='%1.1f%%', 
+            colors=colors)
+    ax2.set_title('Rating Distribution (Pie Chart)')
+    
+    # Adjust layout and display
+    plt.tight_layout()
+    plt.show()
+    
+    # Calculate numerical summaries
+    counts = dataset['rating'].value_counts().sort_index()
+    percentages = dataset['rating'].value_counts(normalize=True).sort_index().mul(100).round(1)
+    
+    # Print numerical summary
+    print("\nNumerical Summary:")
+    print(counts)
+    print("\nPercentage Distribution:")
+    print(percentages)
+    
+    # Return the summaries as a dictionary
+    return {
+        'counts': counts,
+        'percentages': percentages
+    }
+
+def plot_rating_distribution_comparison(dataset, dataset_original, column='rating', figsize=(15, 12), palette='viridis'):
+    """
+    Creates a visualization of rating distribution with bar plot and pie chart for two datasets.
+    
+    Parameters:
+    -----------
+    dataset : pandas DataFrame
+        DataFrame containing the specified column
+    dataset_original : pandas DataFrame
+        Original DataFrame containing the specified column
+    column : str, optional
+        Column name to use for the rating distribution (default is 'rating')
+    figsize : tuple, optional
+        Figure size for the plots (width, height)
+    palette : str, optional
+        Color palette to use for the plots
+    
+    Returns:
+    --------
+    dict
+        Dictionary containing the numerical summaries for both datasets
+    """
+    
+    # Create a figure with four subplots (2 rows, 2 columns)
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    
+    # Calculate total records for both datasets
+    total_records = len(dataset)
+    total_records_original = len(dataset_original)
+    
+    # 1. Bar plot with seaborn for the first dataset
+    sns.countplot(data=dataset, x=column, ax=axes[0, 0], palette=palette)
+    axes[0, 0].set_title(f'{column.capitalize()} Distribution (Bar Plot) - Cleaned\nTotal Records: {total_records:,}')
+    axes[0, 0].set_xlabel(column.capitalize())
+    axes[0, 0].set_ylabel('Count')
+    
+    # 2. Pie chart with matplotlib for the first dataset
+    rating_counts = dataset[column].value_counts()
+    colors = sns.color_palette(palette, n_colors=len(rating_counts))
+    axes[0, 1].pie(rating_counts, 
+                   labels=rating_counts.index, 
+                   autopct='%1.1f%%', 
+                   colors=colors)
+    axes[0, 1].set_title(f'{column.capitalize()} Distribution (Pie Chart) - Cleaned')
+    
+    # 3. Bar plot with seaborn for the original dataset
+    sns.countplot(data=dataset_original, x=column, ax=axes[1, 0], palette=palette)
+    axes[1, 0].set_title(f'{column.capitalize()} Distribution (Bar Plot) - Original\nTotal Records: {total_records_original:,}')
+    axes[1, 0].set_xlabel(column.capitalize())
+    axes[1, 0].set_ylabel('Count')
+    
+    # 4. Pie chart with matplotlib for the original dataset
+    rating_counts_original = dataset_original[column].value_counts()
+    colors_original = sns.color_palette(palette, n_colors=len(rating_counts_original))
+    axes[1, 1].pie(rating_counts_original, 
+                   labels=rating_counts_original.index, 
+                   autopct='%1.1f%%', 
+                   colors=colors_original)
+    axes[1, 1].set_title(f'{column.capitalize()} Distribution (Pie Chart) - Original')
+    
+    # Adjust layout and display
+    plt.tight_layout()
+    plt.show()
+    
+    # Calculate numerical summaries for both datasets
+    counts = dataset[column].value_counts().sort_index()
+    percentages = dataset[column].value_counts(normalize=True).sort_index().mul(100).round(1)
+    
+    counts_original = dataset_original[column].value_counts().sort_index()
+    percentages_original = dataset_original[column].value_counts(normalize=True).sort_index().mul(100).round(1)
+    
+    # Print numerical summary for both datasets
+    print(f"\nNumerical Summary - Cleaned ({column.capitalize()}):")
+    print(counts)
+    print(f"\nPercentage Distribution - Cleaned ({column.capitalize()}):")
+    print(percentages)
+    
+    print(f"\nNumerical Summary - Original ({column.capitalize()}):")
+    print(counts_original)
+    print(f"\nPercentage Distribution - Original ({column.capitalize()}):")
+    print(percentages_original)
+    
+    # Return the summaries as a dictionary
+    return {
+        'cleaned': {
+            'counts': counts,
+            'percentages': percentages
+        },
+        'original': {
+            'counts': counts_original,
+            'percentages': percentages_original
+        }
+    }
