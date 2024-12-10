@@ -40,6 +40,34 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 
+random_state = 42
+max_iter = 20000
+# Etapas del pipeline para distintos modelos
+pipeline_steps = {
+    "linear_svc" : [
+        ("vectorizer", TfidfVectorizer(min_df=10, max_df=0.9, ngram_range=(1, 2))),
+        ("scaler", MaxAbsScaler()),
+        ("classifier", OneVsOneClassifier(LinearSVC(class_weight="balanced", max_iter=max_iter, random_state=random_state)))
+    ],
+    "svc_linear": [
+        ("vectorizer", TfidfVectorizer(min_df=10, max_df=0.9, ngram_range=(1, 2), max_features=10000)),
+        ("scaler", MaxAbsScaler()),
+        ("classifier", SVC(kernel="linear", class_weight="balanced", decision_function_shape="ovo", probability = True, max_iter=max_iter, random_state=random_state))
+    ],
+    "svc_rbf": [
+        ("vectorizer", TfidfVectorizer(min_df=10, max_df=0.9, ngram_range=(1, 2))),
+        ("dim_reduction", TruncatedSVD(random_state=random_state)),
+        ("scaler", MinMaxScaler()),
+        ("classifier", SVC(kernel="rbf", class_weight="balanced", decision_function_shape="ovo", probability = True, max_iter=max_iter, random_state=random_state))
+    ],
+    "catboost": [
+        ("vectorizer", TfidfVectorizer(min_df=10, max_df=0.9, ngram_range=(1, 2))),
+        ("dim_reduction", TruncatedSVD(random_state=random_state)),
+        ("scaler", MinMaxScaler()),
+        ("classifier", CatBoostClassifier(learning_rate= 0.02, task_type="GPU", random_state=random_state))
+    ],
+}
+
 def display_cm_normalized(cm, model=None):
     """
     Display a normalized confusion matrix with percentages.
@@ -234,7 +262,7 @@ def update_step_params(pipeline, **new_params):
                 step.set_params(**params_to_update)  # Actualiza el modelo directamente
     return pipeline
 
-def pipeline_config(model="linear_svc", storage=None):
+def pipeline_config(model, pipeline_steps, storage=None):
     # Crear un estudio y guardarlo en un archivo SQLite
     storage = storage  # Archivo donde se guardará el progreso
     study_name = model         # Nombre del estudio
@@ -242,24 +270,28 @@ def pipeline_config(model="linear_svc", storage=None):
     # Recrear el Pipeline con los mejores hiperparámetros
     best_params = study.best_params
     display(best_params)
-    pipeline = Pipeline(pipeline_steps[model])
+    pipeline = Pipeline(pipeline_steps)
     pipeline = update_step_params(pipeline, **best_params)
     display(pipeline.get_params)
     return pipeline
 
 def create_db(name, number=5, type="sqlite"):
-    if os.path.exists(f"{name}_{number}clases.db"):
+    db_dir = "./optuna-dbs"
+    os.makedirs(db_dir, exist_ok=True)
+    db_path = os.path.join(db_dir, f"{name}_{number}clases.db")
+
+    if os.path.exists(db_path):
         if type == "sqlite":
-            return f"sqlite:///{name}_{number}clases.db"
+            return f"sqlite:///{db_path}"
         elif type == "postgres":
             return f"postgresql://optuna_user:pass1234@localhost:5432/optuna"
         else:
             return None
     else:
         if type == "sqlite":
-            db = f"sqlite:///{name}_{number}clases.db"
+            db = f"sqlite:///{db_path}"
             db = RDBStorage(url=db, heartbeat_interval=60, grace_period=120)
-            conn = sqlite3.connect(f"{name}_{number}clases.db")
+            conn = sqlite3.connect(db_path)
             conn.execute("PRAGMA max_page_count = 2147483646;")  # Incrementa el límite
             conn.close()
             return db
