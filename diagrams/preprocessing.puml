@@ -1,0 +1,80 @@
+@startuml Text Preprocessing Pipeline for Hotel Reviews
+
+skinparam backgroundColor white
+skinparam style strictuml
+skinparam defaultFontSize 14
+skinparam arrowColor #666666
+skinparam rectangleBackgroundColor #FEFECE
+
+title Text Preprocessing Pipeline for Hotel Reviews Sentiment Analysis
+
+start
+
+:Raw Hotel Review Text;
+
+partition "Text Normalization" {
+    :Convert to lowercase;
+    :Handle Special Cases|
+    note right
+        - Expand contractions (e.g., "won't" → "will not")
+        - Preserve negative contractions
+        - Handle concatenated negations
+    end note
+}
+
+partition "Text Cleaning" {
+    :Remove special characters;
+    note right
+        Preserve:
+        - Letters
+        - Spaces
+        - Apostrophes
+    end note
+}
+
+partition "Word Processing" {
+    :Split text into words;
+
+    split
+        :Process Regular Words|
+        :Split concatenated words
+        using wordninja;
+    split again
+        :Process Special Words|
+        :Preserve:
+        * "not"
+        * preserved contractions
+        * words with apostrophes;
+    end split
+}
+
+partition "Stopword Removal" {
+    :Remove common stopwords;
+    note right
+        Preserve:
+        - Negation words
+        - Sentiment indicators
+    end note
+
+    :Remove hotel-specific stopwords;
+    note right
+        Remove common hotel terms:
+        - hotel, room, stay
+        - booking, night
+        - resort, etc.
+    end note
+}
+
+:Join processed words;
+
+:Clean Processed Text;
+note right
+    Ready for:
+    - Feature extraction
+    - Model training
+    - Sentiment analysis
+end note
+
+stop
+
+@enduml
