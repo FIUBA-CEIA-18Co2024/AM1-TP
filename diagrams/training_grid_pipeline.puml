@@ -1,0 +1,76 @@
+@startuml
+title Sentiment Analysis Model Pipelines
+
+package "Input Data" {
+  [X_train/X_test] as input
+  [y_train/y_test] as labels
+}
+
+package "Label Transformation" {
+  [Transform 1-5 to 0-4] as transform
+}
+
+package "Base Pipeline" {
+  [TfidfVectorizer] as tfidf1
+  [LogisticRegression] as lr1
+}
+
+package "Scaling Pipeline" {
+  [TfidfVectorizer] as tfidf2
+  [StandardScaler] as scaler1
+  [LogisticRegression] as lr2
+}
+
+package "PCA Pipeline" {
+  [TfidfVectorizer] as tfidf3
+  [TruncatedSVD] as pca1
+  [LogisticRegression] as lr3
+}
+
+package "PCA + Scaling Pipeline" {
+  [TfidfVectorizer] as tfidf4
+  [TruncatedSVD] as pca2
+  [StandardScaler] as scaler2
+  [LogisticRegression] as lr4
+}
+
+package "Evaluation" {
+  [GridSearchCV] as grid
+  [Metrics & Plots] as eval
+}
+
+input --> transform
+labels --> transform
+
+transform --> tfidf1
+tfidf1 --> lr1
+lr1 --> grid
+
+transform --> tfidf2
+tfidf2 --> scaler1
+scaler1 --> lr2
+lr2 --> grid
+
+transform --> tfidf3
+tfidf3 --> pca1
+pca1 --> lr3
+lr3 --> grid
+
+transform --> tfidf4
+tfidf4 --> pca2
+pca2 --> scaler2
+scaler2 --> lr4
+lr4 --> grid
+
+grid --> eval
+
+note right of eval
+  - Best parameters
+  - Classification report
+  - Confusion matrix
+  - Learning curves
+  - Top features
+  - Feature importance by class
+end note
+
+@enduml
