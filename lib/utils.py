@@ -143,7 +143,7 @@ def display_cm_normalized(cm, model=None):
     fig.tight_layout()
     plt.show()
 
-def test_scoring(model, description, y_train, y_train_pred, y_test, y_test_pred):
+def test_scoring(model, description, y_train, y_train_pred, y_test, y_test_pred, time_train = None):
     # Confusion matrices (normalizadas)
     cm_train = confusion_matrix(y_train, y_train_pred)
     cm_test = confusion_matrix(y_test, y_test_pred)
@@ -160,13 +160,18 @@ def test_scoring(model, description, y_train, y_train_pred, y_test, y_test_pred)
     # Reestructurar el DataFrame
     report_df = report_df.reset_index().rename(columns={"index": "Clase"})
     report_df["accuracy"] = np.nan  # Añadir columna para "accuracy"
+    report_df["time_train"] = np.nan 
     report_df.loc[report_df["Clase"] == "accuracy", ["precision", "recall", "f1-score", "support"]] = np.nan
     report_df.loc[report_df["Clase"] == "accuracy", "accuracy"] = report_dict["accuracy"]
+
+    time_row = {"Clase": "time_train", "precision": np.nan, "recall": np.nan, "f1-score": np.nan, 
+            "support": np.nan, "accuracy": np.nan, "Modelo": model, "time_train": time_train}
+    report_df = pd.concat([report_df, pd.DataFrame([time_row])], ignore_index=True)
 
     report_df["Modelo"] = model
 
     # Guardar corrida
-    db_dir = "./model-dbs"
+    db_dir = "db/model-dbs/"
     os.makedirs(db_dir, exist_ok=True)
     db_path = os.path.join(db_dir, "model_reports.db")
     conn = sqlite3.connect(db_path)
@@ -1055,7 +1060,50 @@ def plot_all_param_results(grid_search, param_grid):
     plt.tight_layout()
     plt.show()
 
-def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10, cv=3):
+def create_param_grids():
+    """Define parameter grids for each model"""
+    param_grids = {
+        'Logistic Regression': {
+            'vectorizer__max_features': [1000], #, 3000, 8000, 10000, 15000],
+            'vectorizer__ngram_range': [(1,1), (1,2)],
+            'classifier__C': [0.1, 1.0, 10.0, 12.0],
+            'classifier__class_weight': ['balanced'],
+            'classifier__penalty': ['l1', 'l2'],
+            'classifier__solver': ['saga', 'liblinear']
+        },
+        'With Scaling': {
+            'vectorizer__max_features': [1000, 3000, 8000, 10000, 15000],
+            'vectorizer__ngram_range': [(1,1), (1,2)],
+            'scaler__with_mean': [False],  # Correct way to parameterize scaler
+            'classifier__C': [0.1, 1.0, 10.0, 12.0],
+            'classifier__class_weight': ['balanced'],
+            'classifier__penalty': ['l1', 'l2'],
+            'classifier__solver': ['saga', 'liblinear']
+        },
+        'With PCA': {
+            'vectorizer__max_features': [1000, 3000, 8000, 10000, 15000],
+            'vectorizer__ngram_range': [(1,1), (1,2)],
+            'dim_reduction__n_components': [50, 100, 200],
+            'classifier__C': [0.1, 1.0, 10.0, 12.0],
+            'classifier__class_weight': ['balanced'],
+            'classifier__penalty': ['l1', 'l2'],
+            'classifier__solver': ['saga', 'liblinear']
+        },
+        'PCA + Scaling': {
+            'vectorizer__max_features': [1000, 3000, 8000, 10000, 15000],
+            'vectorizer__ngram_range': [(1,1), (1,2)],
+            'dim_reduction__n_components': [50, 100, 200],
+            'scaler__with_mean': [False],  # Correct way to parameterize scaler
+            'classifier__C': [0.1, 1.0, 10.0, 12.0],
+            'classifier__class_weight': ['balanced'],
+            'classifier__penalty': ['l1', 'l2'],
+            'classifier__solver': ['saga', 'liblinear']
+        },
+
+    }
+    return param_grids
+
+def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10, cv=3, classes="3"):
     # Transform labels from 1-5 to 0-4
     y_train_transformed = y_train - 1
     y_test_transformed = y_test - 1
@@ -1117,10 +1165,17 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
         
         grid_search.fit(X_train, y_train_transformed)
         
+        # Calculate fit time
+        fit_time = grid_search.refit_time_
+
         # Store best model results
         y_pred = grid_search.predict(X_test)
         y_pred_original = y_pred + 1
         y_test_original = y_test_transformed + 1
+        
+        y_pred_train = grid_search.predict(X_train)
+        y_pred_original_train = y_pred_train + 1
+        y_train_original = y_train_transformed + 1
 
         results[name] = {
             'best_params': grid_search.best_params_,
@@ -1129,7 +1184,10 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
             'test_score': grid_search.score(X_test, y_test_transformed),
             'classification_report': classification_report(y_test_original, y_pred_original),
             'confusion_matrix': confusion_matrix(y_test_original, y_pred_original),
-            'grid_search': grid_search
+            'grid_search': grid_search,
+            'fit_time': fit_time,
+            'f1_score': f1_score(y_test_original, y_pred_original, average='weighted'),
+            'f1_score_train': f1_score(y_train_original, y_pred_original_train, average='weighted')
         }
 
         # Print results
@@ -1138,6 +1196,7 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
         print(f"Best CV score: {results[name]['best_score']:.3f}")
         print(f"Training accuracy: {results[name]['train_score']:.3f}")
         print(f"Testing accuracy: {results[name]['test_score']:.3f}")
+        print(f"Fit time: {results[name]['fit_time']:.3f} seconds")
         print("\nClassification Report:")
         print(results[name]['classification_report'])
 
@@ -1150,6 +1209,8 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
         plt.show()
+        
+        test_scoring(f'logistic_regression_{name}', f'logistic_regression_{name}'+str(classes), y_train, y_pred_original_train, y_test, y_pred_original, time_train=fit_time)
 
         # Plot learning curves for best model
         plot_learning_curves(
@@ -1177,24 +1238,27 @@ def plot_model_comparison(results):
         models = list(results.keys())
         train_scores = [results[m]['train_score'] for m in models]
         test_scores = [results[m]['test_score'] for m in models]
+        f1_scores = [results[m]['f1_score'] for m in models]
+        f1_scores_train = [results[m]['f1_score_train'] for m in models]
 
-        # Create plot
+        # Create plot for accuracy
         x = np.arange(len(models))
         width = 0.35
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        rects1 = ax.bar(x - width/2, train_scores, width, label='Train')
-        rects2 = ax.bar(x + width/2, test_scores, width, label='Test')
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
+        
+        rects1 = ax1.bar(x - width/2, train_scores, width, label='Train')
+        rects2 = ax1.bar(x + width/2, test_scores, width, label='Test')
 
-        # Customize plot
-        ax.set_ylabel('Accuracy')
-        ax.set_title('Model Performance Comparison')
-        ax.set_xticks(x)
-        ax.set_xticklabels(models, rotation=45)
-        ax.legend()
+        # Customize plot for accuracy
+        ax1.set_ylabel('Accuracy')
+        ax1.set_title('Model Performance Comparison - Accuracy')
+        ax1.set_xticks(x)
+        ax1.set_xticklabels(models, rotation=45)
+        ax1.legend()
 
-        # Add value labels
-        def autolabel(rects):
+        # Add value labels for accuracy
+        def autolabel(rects, ax):
             for rect in rects:
                 height = rect.get_height()
                 ax.annotate(f'{height:.3f}',
@@ -1203,8 +1267,23 @@ def plot_model_comparison(results):
                           textcoords="offset points",
                           ha='center', va='bottom')
 
-        autolabel(rects1)
-        autolabel(rects2)
+        autolabel(rects1, ax1)
+        autolabel(rects2, ax1)
+
+        # Create plot for F1-score
+        rects3 = ax2.bar(x - width/2, f1_scores_train, width, label='Train')
+        rects4 = ax2.bar(x + width/2, f1_scores, width, label='Test')
+
+        # Customize plot for F1-score
+        ax2.set_ylabel('F1 Score')
+        ax2.set_title('Model Performance Comparison - F1 Score')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(models, rotation=45)
+        ax2.legend()
+
+        # Add value labels for F1-score
+        autolabel(rects3, ax2)
+        autolabel(rects4, ax2)
 
         plt.tight_layout()
         plt.show()
