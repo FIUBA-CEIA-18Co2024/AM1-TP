@@ -1,4 +1,5 @@
 import os
+import base64
 import pandas as pd
 
 from sklearn.metrics import (
@@ -689,3 +690,17 @@ def plot_rating_distribution_comparison(dataset, dataset_original, column='ratin
             'percentages': percentages_original
         }
     }
+    
+def encode_image_to_base64(image_path):
+    """
+    Encode a PNG image to a base64 string.
+
+    Args:
+        image_path (str): Path to the PNG image file.
+
+    Returns:
+        str: Base64-encoded string of the image.
+    """
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+    return encoded_string
