@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 
+from sklearn.base import BaseEstimator, ClassifierMixin
+
 from sklearn.metrics import (
                                 accuracy_score,
                                 precision_score,
@@ -10,7 +12,8 @@ from sklearn.metrics import (
                                 classification_report, 
                                 roc_auc_score,
                                 auc, 
-                                roc_curve
+                                roc_curve,
+                                ConfusionMatrixDisplay
 )
 from sklearn.model_selection import cross_val_score
 
@@ -21,11 +24,12 @@ from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler
 
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC, LinearSVC
-from catboost import CatBoostClassifier
 from sklearn.ensemble import VotingClassifier
 from sklearn.multiclass import OneVsOneClassifier
 from sklearn.preprocessing import MaxAbsScaler
 from sklearn.model_selection import StratifiedKFold
+from catboost import CatBoostClassifier
+from catboost import CatBoostError
 
 import optuna
 import sqlite3
@@ -71,6 +75,19 @@ pipeline_steps = {
         ("classifier", CatBoostClassifier(learning_rate= 0.02, task_type="GPU", random_state=random_state))
     ],
 }
+
+class CatBoostWrapper(BaseEstimator, ClassifierMixin):
+    def __init__(self, model):
+        self.model = model
+
+    def fit(self, X, y):
+        return self.model.fit(X, y)
+
+    def predict(self, X):
+        return self.model.predict(X).ravel()
+    
+    def predict_proba(self, X):
+        return self.model.predict_proba(X)
 
 def display_cm_normalized(cm, model=None):
     """
@@ -118,24 +135,44 @@ def display_cm_normalized(cm, model=None):
     fig.tight_layout()
     plt.show()
 
-def test_scoring (model, description, y_train, y_train_pred, y_test, y_test_pred):
+
+def test_scoring(model, description, y_train, y_train_pred, y_test, y_test_pred):
+    # Confusion matrices (normalizadas)
     cm_train = confusion_matrix(y_train, y_train_pred)
     cm_test = confusion_matrix(y_test, y_test_pred)
+
     display_cm_normalized(cm_train, f"{description} (train)")
     display_cm_normalized(cm_test, f"{description} (test)")
 
-    print(f"Score for {description}")
-    print(f"Precisión: {precision_score(y_test, y_test_pred, zero_division=0, pos_label=1, average=None)}")
-    print(f"Recuperación: {recall_score(y_test, y_test_pred, zero_division=0, pos_label=1, average=None)}")
-    print(f"Accuracy: {accuracy_score(y_test, y_test_pred)}")
-    print(f"F1-score: {f1_score(y_test, y_test_pred, average=None)}")
-
+    # Métricas globales y por clase
+    display("Y Test",np.unique(y_test, return_counts=True))
+    display("Y Test Predictions", np.unique(y_test_pred, return_counts=True))
     report_dict = classification_report(y_test, y_test_pred, output_dict=True)
     report_df = pd.DataFrame(report_dict).transpose()
+
+    # Reestructurar el DataFrame
+    report_df = report_df.reset_index().rename(columns={"index": "Clase"})
+    report_df["accuracy"] = np.nan  # Añadir columna para "accuracy"
+    report_df.loc[report_df["Clase"] == "accuracy", ["precision", "recall", "f1-score", "support"]] = np.nan
+    report_df.loc[report_df["Clase"] == "accuracy", "accuracy"] = report_dict["accuracy"]
+
     report_df["Modelo"] = model
+
+    # Guardar corrida
+    db_dir = "./model-dbs"
+    os.makedirs(db_dir, exist_ok=True)
+    db_path = os.path.join(db_dir, "model_reports.db")
+    conn = sqlite3.connect(db_path)
+    table_name = description  # Nombre de la tabla en SQLite
+    report_df.to_sql(table_name, conn, if_exists="replace", index=False)
+    conn.close()
+
+    # Mostrar métricas generales
+    print(f"Score for {description}")
     display(report_df)
 
-    return(cm_test, report_df)
+    # Devolver la matriz de confusión y el reporte reestructurado
+    return cm_test, report_df
 
 # No funciona con GPU
 def catboost_cross_val_score(trial, pipeline, X, y, param, cv=3, eval_metric="Accuracy", early_stopping_rounds=100):
@@ -263,7 +300,13 @@ def update_step_params(pipeline, **new_params):
             else:
                 valid_params = step.get_params().keys()
                 params_to_update = {key: value for key, value in new_params.items() if key in valid_params}
-                step.set_params(**params_to_update)  # Actualiza el modelo directamente
+                try:
+                    step.set_params(**params_to_update)  # Actualiza el modelo directamente
+                except CatBoostError as e:
+                    display(step)
+                    print("Recreating catboost classifier due to error: {e}")
+                    step = CatBoostClassifier(learning_rate= 0.02, task_type="GPU", random_state=random_state)
+                    step.set_params(**params_to_update)
     return pipeline
 
 def pipeline_config(model, pipeline_steps, storage=None):
@@ -689,3 +732,122 @@ def plot_rating_distribution_comparison(dataset, dataset_original, column='ratin
             'percentages': percentages_original
         }
     }
+
+def load_model_info (models, model_reports="./model-dbs/model_reports.db"):
+    combined_reports = pd.DataFrame()
+    if os.path.exists(model_reports):
+        try:
+            with sqlite3.connect(model_reports) as conn:
+                for model in models:
+                    table_name = model
+                    query = f"SELECT * FROM {table_name}"
+                    try:
+                        df = pd.read_sql(query, conn)
+                        # Concatenar el DataFrame con los reportes combinados
+                        combined_reports = pd.concat([combined_reports, df], ignore_index=True)
+                    except Exception as e:
+                        print(f"Error leyendo la tabla {table_name}: {e}")
+        except Exception as e:
+            print(f"Error al conectar con la base de datos: {e}")
+    else:
+        print(f"La base de datos {model_reports} no existe.")
+    display(combined_reports)
+    return combined_reports
+
+def best_model (combined_reports):
+    # Filtrar solo las métricas ponderadas (weighted avg)
+    weighted_metrics = combined_reports[combined_reports["Clase"] == "weighted avg"]
+
+    # Seleccionar las métricas clave
+    metrics_to_compare = ["precision", "recall", "f1-score"]
+    weighted_metrics_comparison = weighted_metrics[["Modelo"] + metrics_to_compare].set_index("Modelo")
+
+    # Mostrar resultados numéricos
+    print("\nMétricas ponderadas por modelo:")
+    print(weighted_metrics_comparison)
+
+    # Visualización de métricas ponderadas
+    weighted_metrics_comparison.plot(kind="bar", figsize=(12, 8), alpha=0.85)
+    plt.title("Comparación de Métricas Ponderadas por Modelo")
+    plt.xlabel("Modelo")
+    plt.ylabel("Métrica Ponderada")
+    plt.legend(title="Métricas", loc="best")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    # Determinar el mejor modelo (según F1-score ponderado)
+    best_model = weighted_metrics_comparison["f1-score"].idxmax()
+    best_f1_score = weighted_metrics_comparison.loc[best_model, "f1-score"]
+    print(f"\nEl mejor modelo es {best_model} con un F1-Score ponderado de {best_f1_score:.4f}.")
+    return best_model, best_f1_score
+
+def compare_models (models, cms=None):
+    combined_reports = load_model_info(models)
+    # Filtrar para quitar las filas no relevantes (eliminamos 'accuracy' de las métricas por clase)
+    class_only_reports = combined_reports[~combined_reports["Clase"].isin(["accuracy", "macro avg", "weighted avg"])]
+    # Convertir "Clase" a tipo numérico para ordenar adecuadamente en el gráfico
+    class_only_reports.loc[:, "Clase"] = pd.to_numeric(class_only_reports["Clase"], errors="coerce")
+    # Crear un dataframe solo con las filas de 'accuracy' para mostrarlo aparte
+    accuracy_report = combined_reports[combined_reports["Clase"] == "accuracy"]
+    # Crear los gráficos para las métricas por clase (sin incluir accuracy)
+    metrics = ['precision', 'recall', 'f1-score']
+    plt.figure(figsize=(12, 8))
+
+    # Graficar cada métrica (sin accuracy)
+    for i, metric in enumerate(metrics, 1):
+        plt.subplot(2, 2, i)  # 2 filas, 2 columnas
+        sns.barplot(data=class_only_reports, x="Clase", y=metric, hue="Modelo")
+        plt.title(f"Comparación de {metric.capitalize()} por Clase")
+        plt.xlabel("Clase")
+        plt.ylabel(f"{metric.capitalize()}")
+        plt.legend(title="Modelo")
+
+        # Agregar líneas punteadas para los valores mínimo y máximo
+        min_val = class_only_reports[metric].min()
+        max_val = class_only_reports[metric].max()
+        plt.axhline(min_val, color='red', linestyle='--', label=f"Min {metric.capitalize()}")
+        plt.axhline(max_val, color='green', linestyle='--', label=f"Max {metric.capitalize()}")
+        
+        # Etiquetas para las líneas mínimas y máximas
+        plt.text(0, min_val, f'{min_val:.2f}', color='black', ha='right', va='bottom')
+        plt.text(0, max_val, f'{max_val:.2f}', color='black', ha='left', va='top')
+
+    # Graficar el accuracy por modelo (en lugar de por clase)
+    plt.subplot(2, 2, 4)  # Colocamos el gráfico de accuracy en la última posición
+    sns.barplot(data=accuracy_report, x="Modelo", y="accuracy")
+    plt.title("Accuracy por Modelo")
+    plt.xlabel("Modelo")
+    plt.ylabel("Accuracy")
+    plt.legend(title="Modelo")
+
+    # Agregar las líneas punteadas para el gráfico de accuracy
+    accuracy_min = accuracy_report['accuracy'].min()
+    accuracy_max = accuracy_report['accuracy'].max()
+    plt.axhline(accuracy_min, color='red', linestyle='--', label=f"Min Accuracy")
+    plt.axhline(accuracy_max, color='green', linestyle='--', label=f"Max Accuracy")
+
+    # Etiquetas para las líneas de accuracy
+    plt.text(0, accuracy_min, f'{accuracy_min:.2f}', color='black', ha='right', va='top')
+    plt.text(0, accuracy_max, f'{accuracy_max:.2f}', color='black', ha='left', va='top')
+
+    # Ajustar diseño
+    plt.tight_layout()
+    plt.show()
+
+    if cms != None:
+        # Graficar las matrices de confusión
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # 2 filas, 2 columnas
+        #cms = [cm_test_linear_svc, cm_test_linear_svc, cm_test_svc_rbf, cm_test_catboost]
+
+        # Iterar sobre cada matriz y su subplot
+        for ax, cm, name in zip(axes.ravel(), cms, models):
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+            disp.plot(ax=ax, colorbar=False)
+            ax.set_title(name)
+
+    # Ajustar diseño de las matrices de confusión
+    plt.tight_layout()
+    plt.show()    
+
+    best_model (combined_reports)                      
