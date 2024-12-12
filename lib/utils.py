@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+import time
 
 from sklearn.metrics import (
                                 accuracy_score,
@@ -335,7 +335,7 @@ def pipeline_config(model, pipeline_steps, storage=None):
     return pipeline
 
 def create_db(name, number=5, type="sqlite"):
-    db_dir = "./optuna-dbs"
+    db_dir = "./db/optuna-dbs"
     os.makedirs(db_dir, exist_ok=True)
     db_path = os.path.join(db_dir, f"{name}_{number}clases.db")
 
@@ -779,17 +779,14 @@ def load_model_info (models, model_reports="db/model-dbs/model_reports.db"):
     display(combined_reports)
     return combined_reports
 
-def best_model (combined_reports):
-    # Filtrar solo las métricas ponderadas (weighted avg)
-    weighted_metrics = combined_reports[combined_reports["Clase"] == "weighted avg"]
-
+def best_model (weighted_avg_report):
     # Seleccionar las métricas clave
-    metrics_to_compare = ["precision", "recall", "f1-score"]
-    weighted_metrics_comparison = weighted_metrics[["Modelo"] + metrics_to_compare].set_index("Modelo")
+    metrics_to_compare = ["precision", "recall", "f1-score", "f1-score_normalized"]
+    weighted_metrics_comparison = weighted_avg_report[["Modelo"] + metrics_to_compare].set_index("Modelo")
 
     # Mostrar resultados numéricos
     print("\nMétricas ponderadas por modelo:")
-    print(weighted_metrics_comparison)
+    display(weighted_metrics_comparison)
 
     # Visualización de métricas ponderadas
     weighted_metrics_comparison.plot(kind="bar", figsize=(12, 8), alpha=0.85)
@@ -804,10 +801,14 @@ def best_model (combined_reports):
     # Determinar el mejor modelo (según F1-score ponderado)
     best_model = weighted_metrics_comparison["f1-score"].idxmax()
     best_f1_score = weighted_metrics_comparison.loc[best_model, "f1-score"]
-    print(f"\nEl mejor modelo es {best_model} con un F1-Score ponderado de {best_f1_score:.4f}.")
-    return best_model, best_f1_score
+    print(f"\nEl mejor modelo por f1-score es {best_model} con un F1-Score ponderado de {best_f1_score:.4f}.")
 
-def compare_models (models, cms=None):
+    best_model = weighted_metrics_comparison["f1-score_normalized"].idxmax()
+    best_f1_time = weighted_metrics_comparison.loc[best_model, "f1-score_normalized"]
+    print(f"\nEl mejor modelo por relación score/tiempo es {best_model} con un F1-Score normalizado de {best_f1_time:.4f}.")
+    return best_model, best_f1_time
+
+def compare_models(models, cms=None):
     combined_reports = load_model_info(models)
     # Filtrar para quitar las filas no relevantes (eliminamos 'accuracy' de las métricas por clase)
     class_only_reports = combined_reports[~combined_reports["Clase"].isin(["accuracy", "macro avg", "weighted avg"])]
@@ -815,56 +816,77 @@ def compare_models (models, cms=None):
     class_only_reports.loc[:, "Clase"] = pd.to_numeric(class_only_reports["Clase"], errors="coerce")
     # Crear un dataframe solo con las filas de 'accuracy' para mostrarlo aparte
     accuracy_report = combined_reports[combined_reports["Clase"] == "accuracy"]
+    # Crear un dataframe con los puntajes ponderados
+    weighted_avg_report = combined_reports[combined_reports["Clase"] == "weighted avg"]
+    # Filtrar la fila con 'time_train' en el DataFrame combinado
+    time_train_value = combined_reports[['time_train', 'Modelo']][combined_reports['time_train'].notna()]
+    # Agregar la columna 'time_train' al DataFrame 'weighted_avg_report'
+    weighted_avg_report = pd.merge(weighted_avg_report.drop('time_train', axis=1), time_train_value, on='Modelo', how='left')
+
     # Crear los gráficos para las métricas por clase (sin incluir accuracy)
     metrics = ['precision', 'recall', 'f1-score']
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(18, 14))  # Aumentar el ancho y alto del diseño para mejor espacio
 
     # Graficar cada métrica (sin accuracy)
     for i, metric in enumerate(metrics, 1):
-        plt.subplot(2, 2, i)  # 2 filas, 2 columnas
+        plt.subplot(3, 2, i)  # 3 filas, 2 columnas
         sns.barplot(data=class_only_reports, x="Clase", y=metric, hue="Modelo")
-        plt.title(f"Comparación de {metric.capitalize()} por Clase")
-        plt.xlabel("Clase")
-        plt.ylabel(f"{metric.capitalize()}")
-        plt.legend(title="Modelo")
+        plt.title(f"Comparación de {metric.capitalize()} por Clase", fontsize=14)
+        plt.xlabel("Clase", fontsize=12)
+        plt.ylabel(f"{metric.capitalize()}", fontsize=12)
+
+        # Colocar la leyenda fuera del gráfico
+        plt.legend(title="Modelo", fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
 
         # Agregar líneas punteadas para los valores mínimo y máximo
         min_val = class_only_reports[metric].min()
         max_val = class_only_reports[metric].max()
         plt.axhline(min_val, color='red', linestyle='--', label=f"Min {metric.capitalize()}")
         plt.axhline(max_val, color='green', linestyle='--', label=f"Max {metric.capitalize()}")
-        
-        # Etiquetas para las líneas mínimas y máximas
-        plt.text(0, min_val, f'{min_val:.2f}', color='black', ha='right', va='bottom')
-        plt.text(0, max_val, f'{max_val:.2f}', color='black', ha='left', va='top')
 
-    # Graficar el accuracy por modelo (en lugar de por clase)
-    plt.subplot(2, 2, 4)  # Colocamos el gráfico de accuracy en la última posición
-    sns.barplot(data=accuracy_report, x="Modelo", y="accuracy")
-    plt.title("Accuracy por Modelo")
-    plt.xlabel("Modelo")
-    plt.ylabel("Accuracy")
-    plt.legend(title="Modelo")
+        # Etiquetas para las líneas mínimas y máximas (fuera del gráfico para no solaparse)
+        plt.text(class_only_reports["Clase"].max() + 0.5, min_val, f'{min_val:.2f}', 
+                 color='red', ha='center', va='bottom', fontsize=10)
+        plt.text(class_only_reports["Clase"].max() + 0.5, max_val, f'{max_val:.2f}', 
+                 color='green', ha='center', va='bottom', fontsize=10)
 
-    # Agregar las líneas punteadas para el gráfico de accuracy
-    accuracy_min = accuracy_report['accuracy'].min()
-    accuracy_max = accuracy_report['accuracy'].max()
-    plt.axhline(accuracy_min, color='red', linestyle='--', label=f"Min Accuracy")
-    plt.axhline(accuracy_max, color='green', linestyle='--', label=f"Max Accuracy")
+    # Gráfico del f1-score ponderado por modelo
+    plt.subplot(3, 2, 4)
+    sns.barplot(data=weighted_avg_report, x="Modelo", y="f1-score", color="lightblue")
+    plt.title("F1-Score Ponderado por Modelo", fontsize=14)
+    plt.xlabel("Modelo", fontsize=12)
+    plt.ylabel("F1-Score", fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)  # Etiquetas en diagonal con mayor tamaño
+    plt.yticks(fontsize=10)  # Aumentar el tamaño de las etiquetas del eje Y
+    plt.yscale('log')
 
-    # Etiquetas para las líneas de accuracy
-    plt.text(0, accuracy_min, f'{accuracy_min:.2f}', color='black', ha='right', va='top')
-    plt.text(0, accuracy_max, f'{accuracy_max:.2f}', color='black', ha='left', va='top')
+    # Líneas horizontales para valores máximo y mínimo
+    min_val = weighted_avg_report["f1-score"].min()
+    max_val = weighted_avg_report["f1-score"].max()
+    plt.axhline(min_val, color='red', linestyle='--', label=f"Min F1-Score: {min_val:.2f}")
+    plt.axhline(max_val, color='green', linestyle='--', label=f"Max F1-Score: {max_val:.2f}")
 
+    # Etiquetas para las líneas
+    plt.text(0, min_val, f'{min_val:.2f}', color='black', ha='left', va='top', fontsize=10)
+    plt.text(0, max_val, f'{max_val:.2f}', color='black', ha='left', va='bottom', fontsize=10)
+
+    # Gráfico del f1-score normalizado por tiempo de entrenamiento
+    plt.subplot(3, 2, 5)
+    weighted_avg_report["f1-score_normalized"] = weighted_avg_report["f1-score"] / np.log(weighted_avg_report['time_train'])
+    sns.barplot(data=weighted_avg_report, x="Modelo", y="f1-score_normalized", color="orange")
+    plt.title("F1-Score Normalizado por Tiempo de Entrenamiento", fontsize=14)
+    plt.xlabel("Modelo", fontsize=12)
+    plt.ylabel("F1-Score Normalizado", fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)  # Etiquetas en diagonal
+    plt.yticks(fontsize=10)  # Aumentar el tamaño de las etiquetas del eje Y
+    plt.yscale('log')
     # Ajustar diseño
     plt.tight_layout()
     plt.show()
 
-    if cms != None:
+    if cms is not None:
         # Graficar las matrices de confusión
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # 2 filas, 2 columnas
-        #cms = [cm_test_linear_svc, cm_test_linear_svc, cm_test_svc_rbf, cm_test_catboost]
-
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))  # Aumentar el tamaño de la figura
         # Iterar sobre cada matriz y su subplot
         for ax, cm, name in zip(axes.ravel(), cms, models):
             disp = ConfusionMatrixDisplay(confusion_matrix=cm)
@@ -873,9 +895,10 @@ def compare_models (models, cms=None):
 
     # Ajustar diseño de las matrices de confusión
     plt.tight_layout()
-    plt.show()    
+    plt.show()
 
-    best_model (combined_reports)                      
+    best_model(weighted_avg_report)
+
 
 ### Regresion logistica  
 def split_data_stratified(X, y, test_size=0.2, random_state=42):
