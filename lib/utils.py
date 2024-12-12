@@ -1064,7 +1064,7 @@ def create_param_grids():
     """Define parameter grids for each model"""
     param_grids = {
         'Logistic Regression': {
-            'vectorizer__max_features': [1000], #, 3000, 8000, 10000, 15000],
+            'vectorizer__max_features': [1000, 3000, 8000, 10000, 15000], # [1000, 3000, 8000, 10000, 15000]
             'vectorizer__ngram_range': [(1,1), (1,2)],
             'classifier__C': [0.1, 1.0, 10.0, 12.0],
             'classifier__class_weight': ['balanced'],
@@ -1118,7 +1118,7 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
                 min_df=10,
                 max_df=0.95,)
              ),
-            ('classifier', LogisticRegression(max_iter=6000))
+            ('classifier', LogisticRegression(max_iter=4000))
         ]),      
         'With Scaling': Pipeline([
             ('vectorizer', TfidfVectorizer(
@@ -1126,7 +1126,7 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
                 max_df=0.95,)
              ),
             ('scaler', StandardScaler(with_mean=False)),
-            ('classifier', LogisticRegression(max_iter=6000))
+            ('classifier', LogisticRegression(max_iter=4000))
         ]), 
         'With PCA': Pipeline([
             ('vectorizer', TfidfVectorizer(
@@ -1134,7 +1134,7 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
                 max_df=0.95,)
              ),
             ('dim_reduction', TruncatedSVD(n_components=100)),
-            ('classifier', LogisticRegression(max_iter=6000))
+            ('classifier', LogisticRegression(max_iter=4000))
         ]),
         
         'PCA + Scaling': Pipeline([
@@ -1144,7 +1144,7 @@ def compare_models_with_grid_search(X_train, X_test, y_train, y_test, n_jobs=10,
              ),
             ('dim_reduction', TruncatedSVD(n_components=100)),
             ('scaler', StandardScaler(with_mean=False)),
-            ('classifier', LogisticRegression(max_iter=6000))
+            ('classifier', LogisticRegression(max_iter=4000))
         ])
     }
 
