@@ -829,7 +829,7 @@ def compare_models(models, cms=None):
 
     # Graficar cada métrica (sin accuracy)
     for i, metric in enumerate(metrics, 1):
-        plt.subplot(3, 2, i)  # 3 filas, 2 columnas
+        plt.subplot(3, 1, i)  # 3 filas, 2 columnas
         sns.barplot(data=class_only_reports, x="Clase", y=metric, hue="Modelo")
         plt.title(f"Comparación de {metric.capitalize()} por Clase", fontsize=14)
         plt.xlabel("Clase", fontsize=12)
@@ -849,9 +849,12 @@ def compare_models(models, cms=None):
                  color='red', ha='center', va='bottom', fontsize=10)
         plt.text(class_only_reports["Clase"].max() + 0.5, max_val, f'{max_val:.2f}', 
                  color='green', ha='center', va='bottom', fontsize=10)
+    plt.show()
+
+    plt.figure(figsize=(18, 6))
 
     # Gráfico del f1-score ponderado por modelo
-    plt.subplot(3, 2, 4)
+    plt.subplot(1, 2, 1)
     sns.barplot(data=weighted_avg_report, x="Modelo", y="f1-score", color="lightblue")
     plt.title("F1-Score Ponderado por Modelo", fontsize=14)
     plt.xlabel("Modelo", fontsize=12)
@@ -871,7 +874,7 @@ def compare_models(models, cms=None):
     plt.text(0, max_val, f'{max_val:.2f}', color='black', ha='left', va='bottom', fontsize=10)
 
     # Gráfico del f1-score normalizado por tiempo de entrenamiento
-    plt.subplot(3, 2, 5)
+    plt.subplot(1, 2, 2)
     weighted_avg_report["f1-score_normalized"] = weighted_avg_report["f1-score"] / np.log(weighted_avg_report['time_train'])
     sns.barplot(data=weighted_avg_report, x="Modelo", y="f1-score_normalized", color="orange")
     plt.title("F1-Score Normalizado por Tiempo de Entrenamiento", fontsize=14)
