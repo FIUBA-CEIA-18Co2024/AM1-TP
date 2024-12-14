@@ -808,8 +808,17 @@ def best_model (weighted_avg_report):
     print(f"\nEl mejor modelo por relación score/tiempo es {best_model} con un F1-Score normalizado de {best_f1_time:.4f}.")
     return best_model, best_f1_time
 
-def compare_models(models, cms=None):
-    combined_reports = load_model_info(models)
+def compare_models(models, cms=None, model_reports="db/model-dbs/model_reports.db"):
+    custom_palette = sns.color_palette(
+        ["#2ecc71", "#27ae60",  # Greens
+        "#e67e22", "#d35400",  # Oranges
+        "#3498db", "#2980b9",  # Blues
+        "#e74c3c", "#c0392b",  # Reds
+        "#9b59b6", "#8e44ad",  # Purples
+        "#f1c40f", "#f39c12"]  # Yellows
+    )
+    
+    combined_reports = load_model_info(models, model_reports=model_reports)
     # Filtrar para quitar las filas no relevantes (eliminamos 'accuracy' de las métricas por clase)
     class_only_reports = combined_reports[~combined_reports["Clase"].isin(["accuracy", "macro avg", "weighted avg"])]
     # Convertir "Clase" a tipo numérico para ordenar adecuadamente en el gráfico
@@ -829,11 +838,12 @@ def compare_models(models, cms=None):
 
     # Graficar cada métrica (sin accuracy)
     for i, metric in enumerate(metrics, 1):
-        plt.subplot(3, 1, i)  # 3 filas, 2 columnas
-        sns.barplot(data=class_only_reports, x="Clase", y=metric, hue="Modelo")
-        plt.title(f"Comparación de {metric.capitalize()} por Clase", fontsize=14)
+        plt.subplot(3, 1, i)  # 3 filas, 1 columna
+        sns.barplot(data=class_only_reports, x="Clase", y=metric, hue="Modelo", palette=custom_palette)
+        plt.title(f"Comparación de {metric.capitalize()} por Clase", fontsize=14, pad=20)  # Add padding to title
         plt.xlabel("Clase", fontsize=12)
         plt.ylabel(f"{metric.capitalize()}", fontsize=12)
+        plt.tight_layout(pad=3.0)  # Adjust layout to prevent overlap
 
         # Colocar la leyenda fuera del gráfico
         plt.legend(title="Modelo", fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -851,7 +861,7 @@ def compare_models(models, cms=None):
                  color='green', ha='center', va='bottom', fontsize=10)
     plt.show()
 
-    plt.figure(figsize=(18, 6))
+    plt.figure(figsize=(22, 6))
 
     # Gráfico del f1-score ponderado por modelo
     plt.subplot(1, 2, 1)
@@ -875,7 +885,11 @@ def compare_models(models, cms=None):
 
     # Gráfico del f1-score normalizado por tiempo de entrenamiento
     plt.subplot(1, 2, 2)
-    weighted_avg_report["f1-score_normalized"] = weighted_avg_report["f1-score"] / np.log(weighted_avg_report['time_train'])
+    # Scale f1-score_normalized to range between 0 and 1
+    tmp = weighted_avg_report["f1-score"] / weighted_avg_report["time_train"]
+    tmp = (tmp - tmp.min()) / (tmp.max() - tmp.min())
+    weighted_avg_report["f1-score_normalized"] = tmp
+    
     sns.barplot(data=weighted_avg_report, x="Modelo", y="f1-score_normalized", color="orange")
     plt.title("F1-Score Normalizado por Tiempo de Entrenamiento", fontsize=14)
     plt.xlabel("Modelo", fontsize=12)
@@ -901,7 +915,6 @@ def compare_models(models, cms=None):
     plt.show()
 
     best_model(weighted_avg_report)
-
 
 ### Regresion logistica  
 def split_data_stratified(X, y, test_size=0.2, random_state=42):

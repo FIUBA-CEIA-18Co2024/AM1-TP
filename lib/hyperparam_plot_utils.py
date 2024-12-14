@@ -66,7 +66,6 @@ def plot_param_importances_grid(
     plt.savefig(img_name, bbox_inches="tight")
     plt.show()
 
-
 def plot_rank(
     study: Study, n_params: int, width: int, height: int, img_name: str
 ):
@@ -90,7 +89,6 @@ def plot_rank(
     fig.write_image(img_name, format='png')
     fig.show()
 
-
 def plot_param_importances(study: Study, img_name: str):
     """Wrapper for optuna.visualization.plot_param_importances
 
@@ -100,7 +98,6 @@ def plot_param_importances(study: Study, img_name: str):
     fig = vis.plot_param_importances(study)
     fig.write_image(img_name, format='png')
     fig.show()
-
 
 def plot_optimization_history(study: Study, img_name: str):
     """Wrapper for optuna.visualization.plot_optimization_history
@@ -112,7 +109,6 @@ def plot_optimization_history(study: Study, img_name: str):
     fig.write_image(img_name, format='png')
     fig.show()
 
-
 def plot_parallel_coordinate(study: Study, img_name: str):
     """Wrapper for optuna.visualization.plot_parallel_coordinate
 
@@ -122,7 +118,6 @@ def plot_parallel_coordinate(study: Study, img_name: str):
     fig = vis.plot_parallel_coordinate(study)
     fig.write_image(img_name, format='png')
     fig.show()
-
 
 def plot_hyperparam_correlation(study: Study, img_name: str):
     """Plot correlation between hyperparameters and objective
@@ -139,96 +134,3 @@ def plot_hyperparam_correlation(study: Study, img_name: str):
     plt.title("Correlación entre Hiperparámetros y Objetivo")
     plt.savefig(img_name, bbox_inches="tight")
     plt.show()
-
-
-def fake():
-    """
-    Creates a visualization of rating distribution with bar plot and pie chart for two datasets.
-
-    Parameters:
-    -----------
-    dataset : pandas DataFrame
-        DataFrame containing a 'rating' column
-    dataset_original : pandas DataFrame
-        Original DataFrame containing a 'rating' column
-    figsize : tuple, optional
-        Figure size for the plots (width, height)
-    palette : str, optional
-        Color palette to use for the plots
-
-    Returns:
-    --------
-    dict
-        Dictionary containing the numerical summaries for both datasets
-    """
-
-    # # Create a figure with four subplots (2 rows, 2 columns)
-    # fig, axes = plt.subplots(2, 2, figsize=figsize)
-
-    # # Calculate total records for both datasets
-    # total_records = len(dataset)
-    # total_records_original = len(dataset_original)
-
-    # # 1. Bar plot with seaborn for the first dataset
-    # sns.countplot(data=dataset, x='rating', ax=axes[0, 0], palette=palette)
-    # axes[0, 0].set_title(f'Rating Distribution (Bar Plot) - Cleaned\nTotal Records: {total_records:,}')
-    # axes[0, 0].set_xlabel('Rating')
-    # axes[0, 0].set_ylabel('Count')
-
-    # # 2. Pie chart with matplotlib for the first dataset
-    # rating_counts = dataset['rating'].value_counts()
-    # colors = sns.color_palette(palette, n_colors=len(rating_counts))
-    # axes[0, 1].pie(rating_counts,
-    #                labels=rating_counts.index,
-    #                autopct='%1.1f%%',
-    #                colors=colors)
-    # axes[0, 1].set_title('Rating Distribution (Pie Chart) - Cleaned')
-
-    # # 3. Bar plot with seaborn for the original dataset
-    # sns.countplot(data=dataset_original, x='rating', ax=axes[1, 0], palette=palette)
-    # axes[1, 0].set_title(f'Rating Distribution (Bar Plot) - Original\nTotal Records: {total_records_original:,}')
-    # axes[1, 0].set_xlabel('Rating')
-    # axes[1, 0].set_ylabel('Count')
-
-    # # 4. Pie chart with matplotlib for the original dataset
-    # rating_counts_original = dataset_original['rating'].value_counts()
-    # colors_original = sns.color_palette(palette, n_colors=len(rating_counts_original))
-    # axes[1, 1].pie(rating_counts_original,
-    #                labels=rating_counts_original.index,
-    #                autopct='%1.1f%%',
-    #                colors=colors_original)
-    # axes[1, 1].set_title('Rating Distribution (Pie Chart) - Original')
-
-    # # Adjust layout and display
-    # plt.tight_layout()
-    # plt.show()
-
-    # # Calculate numerical summaries for both datasets
-    # counts = dataset['rating'].value_counts().sort_index()
-    # percentages = dataset['rating'].value_counts(normalize=True).sort_index().mul(100).round(1)
-
-    # counts_original = dataset_original['rating'].value_counts().sort_index()
-    # percentages_original = dataset_original['rating'].value_counts(normalize=True).sort_index().mul(100).round(1)
-
-    # # Print numerical summary for both datasets
-    # print("\nNumerical Summary - Cleaned:")
-    # print(counts)
-    # print("\nPercentage Distribution - Cleaned:")
-    # print(percentages)
-
-    # print("\nNumerical Summary - Original:")
-    # print(counts_original)
-    # print("\nPercentage Distribution - Original:")
-    # print(percentages_original)
-
-    # # Return the summaries as a dictionary
-    # return {
-    #     'cleaned': {
-    #         'counts': counts,
-    #         'percentages': percentages
-    #     },
-    #     'original': {
-    #         'counts': counts_original,
-    #         'percentages': percentages_original
-    #     }
-    # }
